@@ -1,238 +1,508 @@
-*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
-html,body{
-  margin:0;height:100%;overflow:hidden;
-  background:#000;color:#fff;
-  font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Microsoft YaHei",sans-serif;
-}
-#c{position:fixed;inset:0;display:block;z-index:1}
+(function () {
+'use strict';
 
-body::after{
-  content:'';position:fixed;inset:0;pointer-events:none;z-index:2;
-  background:radial-gradient(ellipse 78% 68% at 50% 50%,
-    transparent 38%, rgba(0,0,0,.5) 82%, rgba(0,0,0,.85) 100%);
-}
+/* ==========================================================
+   画布 / 尺寸
+========================================================== */
+const canvas = document.getElementById('c');
+const ctx    = canvas.getContext('2d');
 
-/* ================= 顶部 HUD ================= */
-#hud{
-  position:fixed;left:clamp(16px,3.2vw,40px);top:clamp(14px,2.6vh,32px);
-  z-index:4;pointer-events:none;user-select:none;
-}
-#bpmRow{display:flex;align-items:baseline;gap:8px}
-#bpmVal{
-  font-family:ui-monospace,"SF Mono","JetBrains Mono",Menlo,Consolas,monospace;
-  font-size:clamp(44px,10vw,86px);
-  font-weight:200;line-height:.9;letter-spacing:-.05em;
-  color:#fff;
-  font-variant-numeric:tabular-nums;
-  transform-origin:left center;will-change:transform;
-  text-shadow:0 0 22px rgba(255,255,255,.55), 0 0 60px rgba(255,255,255,.22);
-}
-#bpmUnit{
-  font-family:ui-monospace,"SF Mono",Menlo,monospace;
-  font-size:clamp(10px,1.5vw,13px);
-  letter-spacing:.36em;color:#8a8a8a;
-}
-#bpmSub{
-  margin-top:9px;
-  font-family:ui-monospace,"SF Mono",Menlo,monospace;
-  font-size:10px;letter-spacing:.26em;
-  color:#4a4a4a;text-transform:uppercase;
-}
-#bpmSub b{color:#c8c8c8;font-weight:500}
+let W = 0, H = 0, DPR = 1, cx = 0, cy = 0;
+let A = 160;
+let baseY = 0;
 
-/* ================= 关于按钮 ================= */
-#aboutBtn{
-  position:fixed;right:clamp(16px,3.2vw,40px);top:clamp(14px,2.6vh,32px);
-  z-index:6;
-  padding:9px 18px;
-  border-radius:100px;
-  border:1px solid rgba(255,255,255,.22);
-  background:rgba(255,255,255,.04);
-  color:#d8d8d8;
-  font-size:12px;letter-spacing:.16em;font-weight:500;
-  cursor:pointer;transition:.22s;
-  backdrop-filter:blur(10px);-webkit-backdrop-filter:blur(10px);
-  font-family:inherit;
-}
-#aboutBtn:hover{background:rgba(255,255,255,.12);border-color:rgba(255,255,255,.45);color:#fff}
-#aboutBtn:active{transform:scale(.96)}
+const TAU = Math.PI * 2;
 
-/* ================= 关于面板 ================= */
-#aboutPanel{
-  position:fixed;inset:0;z-index:20;
-  display:flex;align-items:center;justify-content:center;
-  padding:20px;
-  background:rgba(0,0,0,.86);
-  backdrop-filter:blur(22px);-webkit-backdrop-filter:blur(22px);
-  opacity:0;pointer-events:none;
-  transition:opacity .3s ease;
-}
-#aboutPanel.show{opacity:1;pointer-events:auto}
+function resize() {
+  DPR = Math.min(window.devicePixelRatio || 1, 2);
+  W = window.innerWidth;
+  H = window.innerHeight;
 
-.aboutCard{
-  position:relative;
-  width:min(600px,100%);
-  max-height:82vh;overflow-y:auto;
-  padding:clamp(24px,4vw,38px);
-  background:#0a0a0a;
-  border:1px solid rgba(255,255,255,.14);
-  border-radius:22px;
-  transform:translateY(16px) scale(.98);
-  transition:transform .34s cubic-bezier(.22,1,.36,1);
-  box-shadow:0 30px 90px rgba(0,0,0,.9);
-}
-#aboutPanel.show .aboutCard{transform:translateY(0) scale(1)}
-.aboutCard::-webkit-scrollbar{width:5px}
-.aboutCard::-webkit-scrollbar-thumb{background:rgba(255,255,255,.18);border-radius:4px}
+  canvas.width  = Math.round(W * DPR);
+  canvas.height = Math.round(H * DPR);
+  canvas.style.width  = W + 'px';
+  canvas.style.height = H + 'px';
+  ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
 
-.aboutClose{
-  position:absolute;right:16px;top:16px;
-  width:34px;height:34px;border-radius:50%;
-  border:1px solid rgba(255,255,255,.16);
-  background:transparent;color:#999;
-  font-size:15px;line-height:1;cursor:pointer;
-  transition:.2s;font-family:inherit;
-}
-.aboutClose:hover{background:rgba(255,255,255,.1);color:#fff;border-color:rgba(255,255,255,.4)}
+  cx = W / 2;
+  cy = H / 2;
 
-.aboutTitle{
-  font-size:23px;font-weight:600;letter-spacing:.01em;color:#fff;
-}
-.aboutSub{
-  margin-top:7px;font-size:11px;letter-spacing:.22em;
-  color:#555;text-transform:uppercase;
-  font-family:ui-monospace,"SF Mono",Menlo,monospace;
+  A     = Math.min(H * 0.26, 200);
+  baseY = cy + 0.375 * A;
 }
 
-.aboutSection{margin-top:28px}
-.aboutSection h3{
-  margin:0 0 11px;font-size:11px;letter-spacing:.24em;
-  color:#7a7a7a;text-transform:uppercase;font-weight:600;
-  font-family:ui-monospace,"SF Mono",Menlo,monospace;
-}
-.aboutSection p{
-  margin:0;font-size:13.5px;line-height:1.8;color:#a4a4a4;
-}
-.aboutSection p.note{
-  font-size:12px;color:#6e6e6e;margin-bottom:16px;line-height:1.7;
-}
-.aboutSection p b{color:#e8e8e8;font-weight:600}
+window.addEventListener('resize', resize);
+window.addEventListener('orientationchange', () => setTimeout(resize, 120));
 
-/* 设备分组 */
-.devGrid{
-  display:grid;
-  grid-template-columns:repeat(auto-fill,minmax(158px,1fr));
-  gap:10px;
-}
-.devGroup{
-  padding:13px 15px 14px;
-  border:1px solid rgba(255,255,255,.09);
-  border-radius:12px;
-  background:rgba(255,255,255,.018);
-  transition:.2s;
-}
-.devGroup:hover{background:rgba(255,255,255,.05);border-color:rgba(255,255,255,.2)}
-.devGroup h4{
-  margin:0 0 8px;font-size:12px;font-weight:600;
-  color:#efefef;letter-spacing:.04em;
-  display:flex;align-items:center;gap:7px;
-}
-.devGroup h4::before{
-  content:'';width:5px;height:5px;border-radius:50%;
-  background:#fff;flex:0 0 auto;
-  box-shadow:0 0 8px rgba(255,255,255,.9);
-}
-.devGroup ul{margin:0;padding:0;list-style:none}
-.devGroup li{
-  font-size:11.5px;line-height:1.85;color:#8e8e8e;
-  padding-left:12px;position:relative;
-}
-.devGroup li::before{
-  content:'·';position:absolute;left:2px;color:#4a4a4a;
-}
-.devGroup.hw{border-color:rgba(255,255,255,.26);background:rgba(255,255,255,.045)}
+/* ==========================================================
+   状态
+========================================================== */
+const SAMPLE_MS = 5;
+const PX_PER_MS = 0.50;
 
-/* 邮箱链接 */
-.mailLink{
-  display:inline-block;
-  color:#e8e8e8;
-  font-family:ui-monospace,"SF Mono",Menlo,monospace;
-  font-size:13px;
-  letter-spacing:.03em;
-  text-decoration:none;
-  padding:7px 15px;
-  border:1px solid rgba(255,255,255,.16);
-  border-radius:9px;
-  background:rgba(255,255,255,.03);
-  transition:.2s;
-}
-.mailLink:hover{
-  color:#fff;
-  border-color:rgba(255,255,255,.45);
-  background:rgba(255,255,255,.09);
-}
-.mailLink::before{
-  content:'✉';
-  margin-right:9px;
-  opacity:.65;
+let simTime        = 0;
+let nextSampleTime = 0;
+
+let samples = [];
+let phase   = 0;
+let beatEnv = 0;
+
+let bpm          = 72;
+let beatInterval = 60000 / 72;
+let speed        = 0;
+let usingReal    = false;
+let realBpm      = 0;
+
+const sparks  = [];
+const ripples = [];
+
+/* ==========================================================
+   心电波形
+========================================================== */
+function ecgAt(t) {
+  let v = 0;
+  v += 0.090 * Math.exp(-Math.pow((t - 0.120) / 0.0250, 2));
+  v -= 0.130 * Math.exp(-Math.pow((t - 0.213) / 0.0080, 2));
+  v += 1.000 * Math.exp(-Math.pow((t - 0.235) / 0.0105, 2));
+  v -= 0.250 * Math.exp(-Math.pow((t - 0.262) / 0.0120, 2));
+  v += 0.250 * Math.exp(-Math.pow((t - 0.420) / 0.0480, 2));
+  return v;
 }
 
-/* ================= 底部面板 ================= */
-#panel{
-  position:fixed;left:50%;bottom:max(16px,env(safe-area-inset-bottom));
-  transform:translateX(-50%);
-  width:min(440px,calc(100vw - 26px));
-  padding:13px 16px 11px;
-  background:rgba(10,10,10,.72);
-  border:1px solid rgba(255,255,255,.11);
-  border-radius:18px;
-  backdrop-filter:blur(20px) saturate(1.2);
-  -webkit-backdrop-filter:blur(20px) saturate(1.2);
-  box-shadow:0 18px 50px rgba(0,0,0,.7);
-  z-index:4;
+/* ==========================================================
+   星光精灵
+========================================================== */
+function makeSprite(r, g, b) {
+  const S = 64;
+  const c = document.createElement('canvas');
+  c.width = c.height = S;
+  const x = c.getContext('2d');
+  const grd = x.createRadialGradient(S/2, S/2, 0, S/2, S/2, S/2);
+  grd.addColorStop(0.00, 'rgba(' + r + ',' + g + ',' + b + ',1)');
+  grd.addColorStop(0.14, 'rgba(' + r + ',' + g + ',' + b + ',0.95)');
+  grd.addColorStop(0.34, 'rgba(' + r + ',' + g + ',' + b + ',0.34)');
+  grd.addColorStop(0.62, 'rgba(' + r + ',' + g + ',' + b + ',0.08)');
+  grd.addColorStop(1.00, 'rgba(' + r + ',' + g + ',' + b + ',0)');
+  x.fillStyle = grd;
+  x.fillRect(0, 0, S, S);
+  return c;
 }
-#btnConnect{
-  width:100%;padding:11px 14px;
-  border-radius:11px;
-  border:1px solid rgba(255,255,255,.26);
-  background:rgba(255,255,255,.05);
-  color:#e8e8e8;font-size:13.5px;font-weight:600;letter-spacing:.05em;
-  cursor:pointer;transition:.2s;font-family:inherit;
-}
-#btnConnect:hover{background:rgba(255,255,255,.14);border-color:rgba(255,255,255,.5);color:#fff}
-#btnConnect:active{transform:scale(.985)}
-#btnConnect[data-on="1"]{
-  background:rgba(255,255,255,.9);
-  border-color:#fff;color:#000;
-}
-#btnConnect[data-on="1"]:hover{background:#fff}
-#btnConnect:disabled{opacity:.3;cursor:not-allowed}
 
-.row{display:flex;align-items:center;gap:12px;margin-top:12px;font-size:12px;color:#6e6e6e}
-.row .lbl{flex:0 0 auto;letter-spacing:.1em}
-input[type=range]{
-  -webkit-appearance:none;appearance:none;
-  flex:1 1 auto;height:2px;border-radius:2px;outline:none;cursor:pointer;
-  background:linear-gradient(90deg,#3a3a3a,#fff);
+const SPARK_SPRITES = [
+  makeSprite(255, 255, 255),
+  makeSprite(255, 255, 255),
+  makeSprite(225, 225, 225),
+  makeSprite(190, 190, 190)
+];
+
+/* ==========================================================
+   心跳 → 星光迸发
+========================================================== */
+function onBeat(beatTime) {
+  const x = W - (simTime - beatTime) * PX_PER_MS;
+  const y = baseY - A * 0.95;
+
+  const n = 18 + (Math.random() * 10 | 0);
+
+  for (let i = 0; i < n; i++) {
+    const ang = Math.random() * TAU;
+    const spd = 50 + Math.random() * 210;
+
+    sparks.push({
+      x, y,
+      vx: Math.cos(ang) * spd,
+      vy: Math.sin(ang) * spd,
+      life: 1,
+      decay: 0.7 + Math.random() * 1.2,
+      size: 1.5 + Math.random() * 3.6,
+      sprite: SPARK_SPRITES[(Math.random() * SPARK_SPRITES.length) | 0]
+    });
+  }
+
+  ripples.push({
+    x, y,
+    r: 4,
+    maxR: 90 + Math.random() * 60,
+    life: 1,
+    decay: 1.5 + Math.random() * 0.7
+  });
 }
-input[type=range]::-webkit-slider-thumb{
-  -webkit-appearance:none;width:14px;height:14px;border-radius:50%;
-  background:#fff;border:none;
-  box-shadow:0 0 0 3px rgba(255,255,255,.12),0 0 14px rgba(255,255,255,.7);
+
+/* ==========================================================
+   更新
+========================================================== */
+function update(dt) {
+  let target;
+  if (usingReal && realBpm > 0) {
+    target = realBpm;
+  } else {
+    const now = performance.now() / 1000;
+    target = 68 + 112 * (1 - Math.exp(-speed / 7.5))
+           + Math.sin(now * 1.50) * 2.2
+           + Math.sin(now * 0.53 + 1.3) * 1.6;
+  }
+
+  bpm += (target - bpm) * (1 - Math.exp(-dt / 800));
+  bpm = Math.max(30, Math.min(220, bpm));
+  beatInterval = 60000 / bpm;
+
+  simTime += dt;
+
+  let guard = 0;
+  const R = 0.235;
+
+  while (nextSampleTime <= simTime && guard++ < 300) {
+    const prevPhase = phase;
+    phase += SAMPLE_MS / beatInterval;
+
+    let wrapped = false;
+    if (phase >= 1) { phase -= 1; wrapped = true; }
+
+    samples.push({ t: nextSampleTime, v: ecgAt(phase) });
+
+    let hit;
+    if (!wrapped) {
+      hit = (prevPhase < R && phase >= R);
+    } else {
+      hit = (prevPhase < R) || (phase >= R);
+    }
+    if (hit) onBeat(nextSampleTime);
+
+    nextSampleTime += SAMPLE_MS;
+  }
+
+  const maxAge = (W + 260) / PX_PER_MS;
+  while (samples.length && (simTime - samples[0].t) > maxAge) {
+    samples.shift();
+  }
+
+  let d = phase - R;
+  if (d < 0) d += 1;
+  beatEnv = Math.exp(-d * 17);
+
+  bpmVal.textContent = Math.round(bpm);
+  bpmVal.style.transform = 'scale(' + (1 + beatEnv * 0.05).toFixed(4) + ')';
 }
-input[type=range]::-moz-range-thumb{
-  width:14px;height:14px;border-radius:50%;border:none;background:#fff;
-  box-shadow:0 0 0 3px rgba(255,255,255,.12),0 0 14px rgba(255,255,255,.7);
+
+/* ==========================================================
+   绘制：网格
+========================================================== */
+function drawGrid() {
+  const minor = 10, major = 50;
+
+  ctx.lineWidth = 1;
+
+  ctx.strokeStyle = 'rgba(255,255,255,0.030)';
+  ctx.beginPath();
+  for (let x = 0; x < W; x += minor) { ctx.moveTo(x + .5, 0); ctx.lineTo(x + .5, H); }
+  for (let y = 0; y < H; y += minor) { ctx.moveTo(0, y + .5); ctx.lineTo(W, y + .5); }
+  ctx.stroke();
+
+  ctx.strokeStyle = 'rgba(255,255,255,0.065)';
+  ctx.beginPath();
+  for (let x = 0; x < W; x += major) { ctx.moveTo(x + .5, 0); ctx.lineTo(x + .5, H); }
+  for (let y = 0; y < H; y += major) { ctx.moveTo(0, y + .5); ctx.lineTo(W, y + .5); }
+  ctx.stroke();
+
+  ctx.strokeStyle = 'rgba(255,255,255,0.09)';
+  ctx.beginPath();
+  ctx.moveTo(0, baseY + .5);
+  ctx.lineTo(W, baseY + .5);
+  ctx.stroke();
 }
-input[type=range]:disabled{opacity:.24;cursor:not-allowed}
-#speedVal{
-  flex:0 0 auto;min-width:76px;text-align:right;
-  font-family:ui-monospace,"SF Mono",Menlo,monospace;
-  font-size:11.5px;color:#9a9a9a;font-variant-numeric:tabular-nums;
+
+/* ==========================================================
+   绘制：心电波形
+========================================================== */
+function drawWave() {
+  const n = samples.length;
+  if (n < 2) return;
+
+  const path = new Path2D();
+  let started = false;
+
+  for (let i = 0; i < n; i++) {
+    const s = samples[i];
+    const x = W - (simTime - s.t) * PX_PER_MS;
+    if (x < -30) continue;
+    if (x > W + 30) break;
+
+    const y = baseY - s.v * A;
+    if (!started) { path.moveTo(x, y); started = true; }
+    else path.lineTo(x, y);
+  }
+  if (!started) return;
+
+  const grad = ctx.createLinearGradient(0, 0, W * 0.26, 0);
+  grad.addColorStop(0, 'rgba(255,255,255,0)');
+  grad.addColorStop(1, 'rgba(255,255,255,1)');
+
+  ctx.save();
+  ctx.lineCap  = 'round';
+  ctx.lineJoin = 'round';
+  ctx.strokeStyle = grad;
+
+  const layers = [
+    { w: 16,  a: 0.035 },
+    { w: 8,   a: 0.070 },
+    { w: 4,   a: 0.160 },
+    { w: 2,   a: 0.400 },
+    { w: 0.95,a: 1.000 }
+  ];
+
+  for (let i = 0; i < layers.length; i++) {
+    ctx.globalAlpha = layers[i].a;
+    ctx.lineWidth   = layers[i].w;
+    ctx.stroke(path);
+  }
+
+  ctx.restore();
+  ctx.globalAlpha = 1;
 }
-#status{
-  margin-top:10px;font-size:11px;line-height:1.5;
-  color:#4d4d4d;text-align:center;letter-spacing:.03em;
+
+/* ==========================================================
+   绘制：星光 + 涟漪
+========================================================== */
+function drawSparks(dtSec) {
+  ctx.save();
+  ctx.globalCompositeOperation = 'lighter';
+
+  const damp = Math.pow(0.16, dtSec);
+
+  for (let i = sparks.length - 1; i >= 0; i--) {
+    const p = sparks[i];
+
+    p.life -= dtSec * p.decay;
+    if (p.life <= 0) { sparks.splice(i, 1); continue; }
+
+    p.x += p.vx * dtSec;
+    p.y += p.vy * dtSec;
+    p.vx *= damp;
+    p.vy *= damp;
+
+    const a  = p.life * p.life;
+    const sz = p.size * (0.4 + p.life * 0.95) * 7;
+
+    ctx.globalAlpha = a;
+    ctx.drawImage(p.sprite, p.x - sz / 2, p.y - sz / 2, sz, sz);
+
+    if (p.size > 2.4 && p.life > 0.35) {
+      const L = p.size * 5.5 * p.life;
+      ctx.globalAlpha = a * 0.6;
+      ctx.fillStyle = '#fff';
+      ctx.fillRect(p.x - L, p.y - 0.5, L * 2, 1);
+      ctx.fillRect(p.x - 0.5, p.y - L, 1, L * 2);
+    }
+  }
+
+  for (let i = ripples.length - 1; i >= 0; i--) {
+    const rp = ripples[i];
+    rp.life -= dtSec * rp.decay;
+    if (rp.life <= 0) { ripples.splice(i, 1); continue; }
+
+    const t = 1 - rp.life;
+    const ease = 1 - Math.pow(1 - t, 2.4);
+    const r = rp.r + (rp.maxR - rp.r) * ease;
+
+    ctx.globalAlpha = rp.life * rp.life * 0.55;
+    ctx.strokeStyle = '#fff';
+    ctx.lineWidth = 1.6 * rp.life + 0.2;
+    ctx.beginPath();
+    ctx.arc(rp.x, rp.y, r, 0, TAU);
+    ctx.stroke();
+  }
+
+  ctx.restore();
+  ctx.globalAlpha = 1;
 }
-#status.warn{color:#d8b070}
-#status.ok{color:#e0e0e0}
+
+/* ==========================================================
+   渲染
+========================================================== */
+function render(dtSec) {
+  ctx.fillStyle = '#000';
+  ctx.fillRect(0, 0, W, H);
+
+  drawGrid();
+  drawWave();
+  drawSparks(dtSec);
+}
+
+/* ==========================================================
+   主循环
+========================================================== */
+let lastT = 0;
+
+function loop(now) {
+  if (!lastT) lastT = now;
+  let dt = now - lastT;
+  lastT = now;
+
+  if (dt < 0)  dt = 0;
+  if (dt > 50) dt = 50;
+
+  update(dt);
+  render(dt / 1000);
+
+  requestAnimationFrame(loop);
+}
+
+/* ==========================================================
+   DOM 引用
+========================================================== */
+const btnConn  = document.getElementById('btnConnect');
+const statusEl = document.getElementById('status');
+const speedEl  = document.getElementById('speed');
+const speedVal = document.getElementById('speedVal');
+const bpmVal   = document.getElementById('bpmVal');
+const srcTag   = document.getElementById('srcTag');
+
+const aboutBtn   = document.getElementById('aboutBtn');
+const aboutPanel = document.getElementById('aboutPanel');
+const aboutClose = document.getElementById('aboutClose');
+
+/* ==========================================================
+   关于面板
+========================================================== */
+function openAbout()  { aboutPanel.classList.add('show'); }
+function closeAbout() { aboutPanel.classList.remove('show'); }
+
+aboutBtn.addEventListener('click', openAbout);
+aboutClose.addEventListener('click', closeAbout);
+aboutPanel.addEventListener('click', function (e) {
+  if (e.target === aboutPanel) closeAbout();
+});
+document.addEventListener('keydown', function (e) {
+  if (e.key === 'Escape') closeAbout();
+});
+
+/* ==========================================================
+   蓝牙心率
+========================================================== */
+function setStatus(text, cls) {
+  statusEl.textContent = text;
+  statusEl.className = cls || '';
+}
+
+function parseHR(event) {
+  const dv = event.target.value;
+  if (!dv || dv.byteLength < 2) return;
+
+  const flags = dv.getUint8(0);
+  const is16  = (flags & 0x01) !== 0;
+  const hr    = is16 ? dv.getUint16(1, true) : dv.getUint8(1);
+
+  if (hr >= 25 && hr <= 230) {
+    realBpm   = hr;
+    usingReal = true;
+  }
+}
+
+async function connect() {
+  if (!navigator.bluetooth) {
+    setStatus('当前浏览器不支持 Web Bluetooth', 'warn');
+    return;
+  }
+
+  try {
+    btnConn.disabled = true;
+    setStatus('正在搜索附近的心率设备…');
+
+    const device = await navigator.bluetooth.requestDevice({
+      filters: [{ services: ['heart_rate'] }]
+      // 若设备未广播标准服务，可改为：
+      // acceptAllDevices: true,
+      // optionalServices: ['heart_rate']
+    });
+
+    device.addEventListener('gattserverdisconnected', onDisconnected);
+    setStatus('正在连接 ' + (device.name || '未知设备') + ' …');
+
+    const server = await device.gatt.connect();
+    const svc    = await server.getPrimaryService('heart_rate');
+    const ch     = await svc.getCharacteristic('heart_rate_measurement');
+
+    await ch.startNotifications();
+    ch.addEventListener('characteristicvaluechanged', parseHR);
+
+    usingReal = true;
+    speedEl.disabled = true;
+
+    btnConn.textContent = '断开连接';
+    btnConn.dataset.on  = '1';
+    btnConn.disabled    = false;
+
+    srcTag.textContent = 'LIVE';
+    setStatus('已连接 · ' + (device.name || '心率设备') + ' · 实时接收中', 'ok');
+
+  } catch (err) {
+    btnConn.disabled = false;
+    usingReal = false;
+    speedEl.disabled = false;
+
+    if (err && err.name === 'NotFoundError') {
+      setStatus('已取消选择设备');
+    } else if (err && err.name === 'SecurityError') {
+      setStatus('需要 HTTPS 或 localhost 才能使用蓝牙', 'warn');
+    } else {
+      setStatus('连接失败：' + (err && err.message ? err.message : err), 'warn');
+    }
+  }
+}
+
+function onDisconnected() {
+  usingReal = false;
+  speedEl.disabled = false;
+  btnConn.textContent = '连接心率设备';
+  btnConn.dataset.on  = '0';
+  srcTag.textContent  = 'SIM';
+  setStatus('设备已断开 · 已切回模拟模式');
+}
+
+btnConn.addEventListener('click', function () {
+  if (btnConn.dataset.on === '1') {
+    if (navigator.bluetooth && navigator.bluetooth.getDevices) {
+      navigator.bluetooth.getDevices().then(list => {
+        list.forEach(d => {
+          try { if (d.gatt && d.gatt.connected) d.gatt.disconnect(); } catch (e) {}
+        });
+      }).catch(() => {});
+    }
+    onDisconnected();
+    return;
+  }
+  connect();
+});
+
+/* ==========================================================
+   速度滑块
+========================================================== */
+speedEl.addEventListener('input', function () {
+  speed = parseFloat(speedEl.value) || 0;
+  speedVal.textContent = speed.toFixed(1) + ' km/h';
+});
+
+/* ==========================================================
+   初始化
+========================================================== */
+function init() {
+  if (!navigator.bluetooth) {
+    btnConn.disabled = true;
+    btnConn.textContent = '浏览器不支持 Web Bluetooth';
+    setStatus('请使用 Chrome / Edge（HTTPS 或 localhost）', 'warn');
+  } else if (location.protocol === 'file:') {
+    setStatus('提示：蓝牙需在 https 或 localhost 下使用', 'warn');
+  }
+
+  speedVal.textContent = speed.toFixed(1) + ' km/h';
+
+  resize();
+  nextSampleTime = 0;
+  simTime = 0;
+
+  requestAnimationFrame(loop);
+}
+
+init();
+
+})();
