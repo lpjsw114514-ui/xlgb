@@ -40,10 +40,12 @@ window.addEventListener('orientationchange', () => setTimeout(resize, 120));
 const settings = {
   particles:     true,
   fullscreen:    false,
+  density:       1.6,
   particleColor: '#ffffff',
   sway:          'free',
   magnify:       true,
-  mark:          true
+  mark:          true,
+  signal:        true
 };
 
 /* ==========================================================
@@ -127,62 +129,81 @@ function pickVelocity(spd) {
 }
 
 /* ==========================================================
+   信号灯脉冲
+========================================================== */
+const signalEl = document.getElementById('signal');
+
+function signalPulse() {
+  if (!settings.signal || !signalEl) return;
+  signalEl.classList.remove('beat');
+  void signalEl.offsetWidth;
+  signalEl.classList.add('beat');
+}
+
+/* ==========================================================
    心跳 → 粒子迸发
 ========================================================== */
 function onBeat(beatTime) {
   const rx = W - (simTime - beatTime) * PX_PER_MS;
   const ry = baseY - A * 0.95;
 
+  /* 信号灯脉冲 */
+  signalPulse();
+
   if (settings.particles) {
-    /* 主迸发 */
-    const n = 48 + (Math.random() * 20 | 0);
+    const mult = settings.density || 1.6;
+
+    /* 主迸发：数量 × 强度倍数 */
+    const n = Math.round((140 + Math.random() * 60) * mult);
     for (let i = 0; i < n; i++) {
-      const spd = 30 + Math.random() * 260;
+      const spd = 30 + Math.random() * 320;
       const v = pickVelocity(spd);
       sparks.push({
         x: rx, y: ry,
         vx: v.vx, vy: v.vy,
         life: 1,
         decay: 0.55 + Math.random() * 0.95,
-        size: 0.7 + Math.random() * 1.9,
+        size: 0.7 + Math.random() * 2.2,
         trail: [rx, ry],
-        maxTrail: 5 + (Math.random() * 7 | 0)
+        maxTrail: 5 + (Math.random() * 9 | 0)
       });
     }
 
-    /* 亮核 */
-    for (let i = 0; i < 6; i++) {
-      const spd = 20 + Math.random() * 70;
+    /* 亮核：数量 × 强度倍数 */
+    const nc = Math.round(18 * mult);
+    for (let i = 0; i < nc; i++) {
+      const spd = 20 + Math.random() * 90;
       const v = pickVelocity(spd);
       sparks.push({
         x: rx, y: ry,
         vx: v.vx, vy: v.vy,
         life: 1,
         decay: 0.35 + Math.random() * 0.35,
-        size: 2.6 + Math.random() * 1.8,
+        size: 2.6 + Math.random() * 2.2,
         trail: [rx, ry],
-        maxTrail: 10
+        maxTrail: 12
       });
     }
 
     /* 全屏粒子：屏幕各处随机爆发 */
     if (settings.fullscreen) {
-      for (let g = 0; g < 10; g++) {
+      const groups = Math.round(16 * mult);
+      for (let g = 0; g < groups; g++) {
         const gx = Math.random() * W;
         const gy = Math.random() * H * 0.82;
-        const cnt = 4 + (Math.random() * 5 | 0);
+        const cnt = Math.round((5 + Math.random() * 6) * mult);
 
         for (let i = 0; i < cnt; i++) {
-          const spd = 20 + Math.random() * 160;
+          const spd = 20 + Math.random() * 200;
           const v = pickVelocity(spd);
           sparks.push({
             x: gx, y: gy,
             vx: v.vx, vy: v.vy,
             life: 1,
             decay: 0.5 + Math.random() * 0.9,
-            size: 0.6 + Math.random() * 1.5,
+            size: 0.6 + Math.random() * 1.7,
             trail: [gx, gy],
-            maxTrail: 4 + (Math.random() * 6 | 0)
+            maxTrail: 4 + (Math.random() * 7 | 0)
           });
         }
       }
@@ -351,7 +372,6 @@ function drawMarks() {
     const topY = baseY - A * 1.2;
     const botY = baseY + A * 0.8;
 
-    /* 竖线 */
     ctx.strokeStyle = 'rgba(255,255,255,.28)';
     ctx.lineWidth = 1;
     ctx.beginPath();
@@ -359,7 +379,6 @@ function drawMarks() {
     ctx.lineTo(x, botY);
     ctx.stroke();
 
-    /* 光晕 */
     ctx.globalAlpha = 0.28;
     ctx.fillStyle = '#fff';
     ctx.beginPath();
@@ -367,7 +386,6 @@ function drawMarks() {
     ctx.fill();
     ctx.globalAlpha = 1;
 
-    /* 圆点 */
     ctx.fillStyle = '#fff';
     ctx.beginPath();
     ctx.arc(x, topY, 3.5, 0, TAU);
@@ -485,7 +503,6 @@ function drawMagnify() {
   const bx = W - boxW - 20;
   const by = H - boxH - 140;
 
-  /* 找最近一个心跳周期的采样 */
   const startT = simTime - beatInterval * 0.98;
   const seg = [];
   for (let i = samples.length - 1; i >= 0; i--) {
@@ -497,7 +514,6 @@ function drawMagnify() {
 
   ctx.save();
 
-  /* 背景 */
   ctx.fillStyle = 'rgba(0,0,0,.58)';
   ctx.strokeStyle = 'rgba(255,255,255,.18)';
   ctx.lineWidth = 1;
@@ -505,13 +521,11 @@ function drawMagnify() {
   ctx.fill();
   ctx.stroke();
 
-  /* 标题 */
   ctx.fillStyle = 'rgba(255,255,255,.45)';
   ctx.font = '10px ui-monospace, "SF Mono", Menlo, monospace';
   ctx.textBaseline = 'top';
   ctx.fillText('ECG · 局部放大', bx + 11, by + 9);
 
-  /* 缩放参数 */
   const padX = 10;
   const padY = 26;
   const innerW = boxW - padX * 2;
@@ -619,6 +633,8 @@ const setFullscreen = document.getElementById('setFullscreen');
 const setMagnify    = document.getElementById('setMagnify');
 const setMark       = document.getElementById('setMark');
 const setSway       = document.getElementById('setSway');
+const setDensity    = document.getElementById('setDensity');
+const setSignal     = document.getElementById('setSignal');
 const colorRow      = document.getElementById('colorRow');
 
 /* ==========================================================
@@ -658,7 +674,6 @@ document.addEventListener('keydown', function (e) {
   if (e.key === 'Escape') closeAllModals();
 });
 
-/* 使用说明 */
 showHelp.addEventListener('click', function () {
   closeModal(settingsPanel);
   openModal(helpPanel);
@@ -671,7 +686,9 @@ setParticles.checked  = settings.particles;
 setFullscreen.checked = settings.fullscreen;
 setMagnify.checked    = settings.magnify;
 setMark.checked       = settings.mark;
+setSignal.checked     = settings.signal;
 setSway.value         = settings.sway;
+setDensity.value      = String(settings.density);
 
 setParticles.addEventListener('change', function () {
   settings.particles = setParticles.checked;
@@ -689,11 +706,18 @@ setMark.addEventListener('change', function () {
   settings.mark = setMark.checked;
 });
 
+setSignal.addEventListener('change', function () {
+  settings.signal = setSignal.checked;
+});
+
 setSway.addEventListener('change', function () {
   settings.sway = setSway.value;
 });
 
-/* 颜色选择 */
+setDensity.addEventListener('change', function () {
+  settings.density = parseFloat(setDensity.value) || 1.6;
+});
+
 colorRow.addEventListener('click', function (e) {
   const btn = e.target.closest('.colorDot');
   if (!btn) return;
@@ -705,7 +729,6 @@ colorRow.addEventListener('click', function (e) {
   settings.particleColor = btn.dataset.color;
 });
 
-/* 清除标记 */
 clearMarks.addEventListener('click', function () {
   marks.length = 0;
 });
@@ -760,10 +783,8 @@ canvas.addEventListener('click', function (e) {
   const x = e.clientX;
   const y = e.clientY;
 
-  /* 只在波形区域附近添加 */
   if (y < baseY - A * 1.7 || y > baseY + A * 1.7) return;
 
-  /* 排除局部放大窗口区域 */
   if (settings.magnify) {
     const boxW = Math.min(260, W * 0.36);
     const boxH = boxW * 0.62;
@@ -810,9 +831,6 @@ async function connect() {
 
     const device = await navigator.bluetooth.requestDevice({
       filters: [{ services: ['heart_rate'] }]
-      // 若设备未广播标准服务，可改为：
-      // acceptAllDevices: true,
-      // optionalServices: ['heart_rate']
     });
 
     device.addEventListener('gattserverdisconnected', onDisconnected);
