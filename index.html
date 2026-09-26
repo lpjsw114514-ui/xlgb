@@ -18,28 +18,32 @@
   <div id="bpmSub">HEART RATE · <b id="srcTag">SIM</b></div>
 </div>
 
-<button id="aboutBtn">关于</button>
+<div id="topBar">
+  <button id="settingsBtn" class="topBtn">设置</button>
+  <button id="aboutBtn" class="topBtn">关于</button>
+</div>
 
-<div id="aboutPanel">
-  <div class="aboutCard">
-    <button class="aboutClose" id="aboutClose">✕</button>
+<!-- ============ 关于面板 ============ -->
+<div id="aboutPanel" class="modal">
+  <div class="modalCard">
+    <button class="modalClose" id="aboutClose">✕</button>
 
-    <div class="aboutTitle">ECG · 心电监护</div>
-    <div class="aboutSub">Real-time Heart Monitor</div>
+    <div class="modalTitle">ECG · 心电监护</div>
+    <div class="modalSub">Real-time Heart Monitor</div>
 
-    <div class="aboutSection">
+    <div class="modalSection">
       <h3>关于本站</h3>
       <p>
         本站通过浏览器 <b>Web Bluetooth</b> 直连支持标准 BLE 心率服务
         （<b>0x180D</b>）的设备，实时绘制滚动心电图。每次心搏都会在 R 峰位置
-        迸发一簇白色粒子。
+        迸发一簇粒子。
         <br><br>
         未连接设备时自动进入<b>模拟模式</b>，拖动底部的速度滑块可改变运动强度，
         心率会随强度平滑上升并带轻微波动，适合演示与调试。
       </p>
     </div>
 
-    <div class="aboutSection">
+    <div class="modalSection">
       <h3>兼容设备</h3>
       <p class="note">
         只要设备支持标准 BLE 心率服务（0x180D）即可连接。部分手表/手环需先在设备端
@@ -132,7 +136,7 @@
       </div>
     </div>
 
-    <div class="aboutSection">
+    <div class="modalSection">
       <h3>使用提示</h3>
       <p>
         · 建议使用 <b>Chrome</b> 或 <b>Edge</b> 等 Chromium 内核浏览器<br>
@@ -142,19 +146,191 @@
       </p>
     </div>
 
-    <div class="aboutSection">
+    <div class="modalSection">
       <h3>用户讨论群</h3>
       <p>
-        <a class="qqLink" id="qqLink" href="javascript:void(0)" data-qq="1125056057">
+        <a class="pillLink qqLink" id="qqLink" href="javascript:void(0)" data-qq="1125056057">
           QQ 群 · 1125056057
         </a>
       </p>
     </div>
 
-    <div class="aboutSection">
+    <div class="modalSection">
       <h3>联系开发者</h3>
       <p>
-        <a href="mailto:hail@hotmail.com" class="mailLink">hail@hotmail.com</a>
+        <a href="mailto:hail@hotmail.com" class="pillLink mailLink">hail@hotmail.com</a>
+      </p>
+    </div>
+
+    <div class="modalSection">
+      <h3>源码仓库</h3>
+      <p>
+        <a class="pillLink ghLink" href="https://github.com/lpjsw114514-ui/xlgb" target="_blank" rel="noopener">
+          github.com/lpjsw114514-ui/xlgb
+        </a>
+      </p>
+    </div>
+
+  </div>
+</div>
+
+<!-- ============ 设置面板 ============ -->
+<div id="settingsPanel" class="modal">
+  <div class="modalCard">
+    <button class="modalClose" id="settingsClose">✕</button>
+
+    <div class="modalTitle">设置</div>
+    <div class="modalSub">Settings</div>
+
+    <div class="modalSection">
+      <h3>粒子效果</h3>
+
+      <div class="settingRow">
+        <div class="settingLabel">
+          <span class="settingName">启用粒子</span>
+          <span class="settingHint">心跳时迸发粒子</span>
+        </div>
+        <label class="switch">
+          <input type="checkbox" id="setParticles" checked>
+          <span class="slider"></span>
+        </label>
+      </div>
+
+      <div class="settingRow">
+        <div class="settingLabel">
+          <span class="settingName">全屏粒子</span>
+          <span class="settingHint">粒子铺满整个屏幕</span>
+        </div>
+        <label class="switch">
+          <input type="checkbox" id="setFullscreen">
+          <span class="slider"></span>
+        </label>
+      </div>
+
+      <div class="settingRow">
+        <div class="settingLabel">
+          <span class="settingName">粒子颜色</span>
+        </div>
+        <div class="colorRow" id="colorRow">
+          <button class="colorDot active" data-color="#ffffff" style="background:#ffffff" title="纯白"></button>
+          <button class="colorDot" data-color="#ff5a5f" style="background:#ff5a5f" title="朱红"></button>
+          <button class="colorDot" data-color="#5ac8fa" style="background:#5ac8fa" title="天蓝"></button>
+          <button class="colorDot" data-color="#ffd60a" style="background:#ffd60a" title="金黄"></button>
+          <button class="colorDot" data-color="#bf5af2" style="background:#bf5af2" title="紫罗兰"></button>
+          <button class="colorDot" data-color="#30d158" style="background:#30d158" title="翠绿"></button>
+        </div>
+      </div>
+
+      <div class="settingRow">
+        <div class="settingLabel">
+          <span class="settingName">摆动方向</span>
+        </div>
+        <select id="setSway" class="selectBox">
+          <option value="free">自由扩散</option>
+          <option value="up">向上</option>
+          <option value="down">向下</option>
+          <option value="left">向左</option>
+          <option value="right">向右</option>
+          <option value="cw">顺时针</option>
+          <option value="ccw">逆时针</option>
+        </select>
+      </div>
+    </div>
+
+    <div class="modalSection">
+      <h3>心率曲线</h3>
+
+      <div class="settingRow">
+        <div class="settingLabel">
+          <span class="settingName">局部放大</span>
+          <span class="settingHint">显示心搏放大窗口</span>
+        </div>
+        <label class="switch">
+          <input type="checkbox" id="setMagnify" checked>
+          <span class="slider"></span>
+        </label>
+      </div>
+
+      <div class="settingRow">
+        <div class="settingLabel">
+          <span class="settingName">手动打点标记</span>
+          <span class="settingHint">点击波形添加运动节点</span>
+        </div>
+        <label class="switch">
+          <input type="checkbox" id="setMark" checked>
+          <span class="slider"></span>
+        </label>
+      </div>
+
+      <div class="settingRow">
+        <div class="settingLabel"></div>
+        <button id="clearMarks" class="smallBtn">清除所有标记</button>
+      </div>
+    </div>
+
+    <div class="modalSection">
+      <h3>帮助</h3>
+      <button id="showHelp" class="fullBtn">查看使用说明</button>
+    </div>
+
+  </div>
+</div>
+
+<!-- ============ 使用说明 ============ -->
+<div id="helpPanel" class="modal">
+  <div class="modalCard">
+    <button class="modalClose" id="helpClose">✕</button>
+
+    <div class="modalTitle">使用说明</div>
+    <div class="modalSub">User Guide</div>
+
+    <div class="modalSection">
+      <h3>快速开始</h3>
+      <p>
+        1. 用 <b>Chrome</b> 或 <b>Edge</b> 打开页面（HTTPS 或 localhost）<br>
+        2. 点击底部「连接心率设备」，选择你的设备<br>
+        3. 连接成功后，心电图会实时显示心率，每次心搏触发粒子迸发<br>
+        4. 未连接设备时，拖动「速度」滑块即可模拟 68–180 BPM
+      </p>
+    </div>
+
+    <div class="modalSection">
+      <h3>粒子效果</h3>
+      <p>
+        <b>启用粒子</b>：控制心跳时是否迸发粒子。<br>
+        <b>全屏粒子</b>：开启后，粒子会铺满整个屏幕，不再只集中在 R 峰。<br>
+        <b>粒子颜色</b>：点击色块切换粒子颜色。<br>
+        <b>摆动方向</b>：控制粒子的初速度方向。自由扩散是四散；向上/下/左/右是定向；顺时针/逆时针带切向旋转。
+      </p>
+    </div>
+
+    <div class="modalSection">
+      <h3>心率曲线</h3>
+      <p>
+        <b>局部放大</b>：在屏幕右下角显示一个放大窗口，展示最近一个完整心搏的波形。<br>
+        <b>手动打点标记</b>：开启后，点击波形区域会在该位置添加一个运动节点标记（白色竖线 + 圆点）。标记会随波形一起滚动。
+      </p>
+    </div>
+
+    <div class="modalSection">
+      <h3>清除标记</h3>
+      <p>
+        在设置面板点「清除所有标记」，会移除当前所有打点标记。
+      </p>
+    </div>
+
+    <div class="modalSection">
+      <h3>面板操作</h3>
+      <p>
+        · 点击右上角「设置」/「关于」切换面板<br>
+        · 点击面板外空白区域或按 <b>ESC</b> 关闭当前面板
+      </p>
+    </div>
+
+    <div class="modalSection">
+      <h3>浏览器要求</h3>
+      <p>
+        Chrome / Edge 等 Chromium 内核浏览器，页面运行在 HTTPS 或 localhost 下。Safari、Firefox 暂不支持 Web Bluetooth。
       </p>
     </div>
 
