@@ -40,10 +40,13 @@ body::after{
 }
 #bpmSub b{color:#c8c8c8;font-weight:500}
 
-/* ================= 关于按钮 ================= */
-#aboutBtn{
+/* ================= 顶部按钮 ================= */
+#topBar{
   position:fixed;right:clamp(16px,3.2vw,40px);top:clamp(14px,2.6vh,32px);
   z-index:6;
+  display:flex;gap:8px;
+}
+.topBtn{
   padding:9px 18px;
   border-radius:100px;
   border:1px solid rgba(255,255,255,.22);
@@ -54,11 +57,11 @@ body::after{
   backdrop-filter:blur(10px);-webkit-backdrop-filter:blur(10px);
   font-family:inherit;
 }
-#aboutBtn:hover{background:rgba(255,255,255,.12);border-color:rgba(255,255,255,.45);color:#fff}
-#aboutBtn:active{transform:scale(.96)}
+.topBtn:hover{background:rgba(255,255,255,.12);border-color:rgba(255,255,255,.45);color:#fff}
+.topBtn:active{transform:scale(.96)}
 
-/* ================= 关于面板 ================= */
-#aboutPanel{
+/* ================= 模态面板 ================= */
+.modal{
   position:fixed;inset:0;z-index:20;
   display:flex;align-items:center;justify-content:center;
   padding:20px;
@@ -67,9 +70,9 @@ body::after{
   opacity:0;pointer-events:none;
   transition:opacity .3s ease;
 }
-#aboutPanel.show{opacity:1;pointer-events:auto}
+.modal.show{opacity:1;pointer-events:auto}
 
-.aboutCard{
+.modalCard{
   position:relative;
   width:min(600px,100%);
   max-height:82vh;overflow-y:auto;
@@ -81,11 +84,11 @@ body::after{
   transition:transform .34s cubic-bezier(.22,1,.36,1);
   box-shadow:0 30px 90px rgba(0,0,0,.9);
 }
-#aboutPanel.show .aboutCard{transform:translateY(0) scale(1)}
-.aboutCard::-webkit-scrollbar{width:5px}
-.aboutCard::-webkit-scrollbar-thumb{background:rgba(255,255,255,.18);border-radius:4px}
+.modal.show .modalCard{transform:translateY(0) scale(1)}
+.modalCard::-webkit-scrollbar{width:5px}
+.modalCard::-webkit-scrollbar-thumb{background:rgba(255,255,255,.18);border-radius:4px}
 
-.aboutClose{
+.modalClose{
   position:absolute;right:16px;top:16px;
   width:34px;height:34px;border-radius:50%;
   border:1px solid rgba(255,255,255,.16);
@@ -93,30 +96,30 @@ body::after{
   font-size:15px;line-height:1;cursor:pointer;
   transition:.2s;font-family:inherit;
 }
-.aboutClose:hover{background:rgba(255,255,255,.1);color:#fff;border-color:rgba(255,255,255,.4)}
+.modalClose:hover{background:rgba(255,255,255,.1);color:#fff;border-color:rgba(255,255,255,.4)}
 
-.aboutTitle{
+.modalTitle{
   font-size:23px;font-weight:600;letter-spacing:.01em;color:#fff;
 }
-.aboutSub{
+.modalSub{
   margin-top:7px;font-size:11px;letter-spacing:.22em;
   color:#555;text-transform:uppercase;
   font-family:ui-monospace,"SF Mono",Menlo,monospace;
 }
 
-.aboutSection{margin-top:28px}
-.aboutSection h3{
+.modalSection{margin-top:28px}
+.modalSection h3{
   margin:0 0 11px;font-size:11px;letter-spacing:.24em;
   color:#7a7a7a;text-transform:uppercase;font-weight:600;
   font-family:ui-monospace,"SF Mono",Menlo,monospace;
 }
-.aboutSection p{
+.modalSection p{
   margin:0;font-size:13.5px;line-height:1.8;color:#a4a4a4;
 }
-.aboutSection p.note{
+.modalSection p.note{
   font-size:12px;color:#6e6e6e;margin-bottom:16px;line-height:1.7;
 }
-.aboutSection p b{color:#e8e8e8;font-weight:600}
+.modalSection p b{color:#e8e8e8;font-weight:600}
 
 /* 设备分组 */
 .devGrid{
@@ -152,9 +155,8 @@ body::after{
 }
 .devGroup.hw{border-color:rgba(255,255,255,.26);background:rgba(255,255,255,.045)}
 
-/* 联系胶囊按钮（邮箱 / QQ） */
-.mailLink,
-.qqLink{
+/* 胶囊链接（邮箱 / QQ / GitHub） */
+.pillLink{
   display:inline-flex;
   align-items:center;
   gap:9px;
@@ -169,27 +171,153 @@ body::after{
   background:rgba(255,255,255,.03);
   transition:.2s;
   cursor:pointer;
+  word-break:break-all;
 }
-.mailLink:hover,
-.qqLink:hover{
+.pillLink:hover{
   color:#fff;
   border-color:rgba(255,255,255,.45);
   background:rgba(255,255,255,.09);
 }
-.mailLink::before{
-  content:'✉';
-  opacity:.65;
-}
-.qqLink::before{
-  content:'💬';
-  opacity:.75;
-  font-size:12px;
-}
+.mailLink::before{content:'✉';opacity:.65}
+.qqLink::before{content:'💬';opacity:.75;font-size:12px}
+.ghLink::before{content:'⌥';opacity:.75;font-size:13px}
+
 .qqLink.copied{
   border-color:rgba(255,255,255,.6);
   background:rgba(255,255,255,.14);
   color:#fff;
 }
+
+/* ================= 设置项 ================= */
+.settingRow{
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap:14px;
+  padding:11px 0;
+  border-bottom:1px solid rgba(255,255,255,.06);
+}
+.settingRow:last-child{border-bottom:none}
+.settingLabel{display:flex;flex-direction:column;gap:3px;min-width:0}
+.settingName{font-size:13px;color:#e0e0e0;letter-spacing:.02em}
+.settingHint{font-size:11px;color:#5d5d5d;letter-spacing:.02em}
+
+/* 开关 */
+.switch{
+  position:relative;
+  display:inline-block;
+  width:42px;height:23px;
+  flex:0 0 auto;
+}
+.switch input{opacity:0;width:0;height:0;position:absolute}
+.switch .slider{
+  position:absolute;inset:0;
+  background:rgba(255,255,255,.13);
+  border:1px solid rgba(255,255,255,.14);
+  border-radius:23px;
+  transition:.24s;
+  cursor:pointer;
+}
+.switch .slider::before{
+  content:'';
+  position:absolute;
+  width:15px;height:15px;
+  left:3px;top:50%;
+  transform:translateY(-50%);
+  background:#8a8a8a;
+  border-radius:50%;
+  transition:.24s;
+}
+.switch input:checked + .slider{
+  background:#fff;
+  border-color:#fff;
+}
+.switch input:checked + .slider::before{
+  background:#000;
+  transform:translate(19px,-50%);
+}
+
+/* 颜色选择 */
+.colorRow{
+  display:flex;
+  gap:8px;
+  flex-wrap:wrap;
+  flex:0 0 auto;
+}
+.colorDot{
+  width:24px;height:24px;
+  border-radius:50%;
+  border:2px solid rgba(255,255,255,.18);
+  padding:0;
+  cursor:pointer;
+  transition:.18s;
+  flex:0 0 auto;
+}
+.colorDot:hover{
+  transform:scale(1.12);
+  border-color:rgba(255,255,255,.55);
+}
+.colorDot.active{
+  border-color:#fff;
+  box-shadow:0 0 0 2px rgba(255,255,255,.28);
+}
+
+/* 下拉选择 */
+.selectBox{
+  appearance:none;-webkit-appearance:none;
+  background:rgba(255,255,255,.06);
+  border:1px solid rgba(255,255,255,.18);
+  color:#e8e8e8;
+  padding:7px 28px 7px 12px;
+  border-radius:9px;
+  font-size:12.5px;
+  font-family:inherit;
+  outline:none;
+  cursor:pointer;
+  flex:0 0 auto;
+  background-image:url("data:image/svg+xml;charset=UTF-8,%3csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 8'%3e%3cpath fill='%23aaaaaa' d='M6 8L0 0h12z'/%3e%3c/svg%3e");
+  background-repeat:no-repeat;
+  background-position:right 10px center;
+  background-size:9px;
+  min-width:120px;
+}
+.selectBox:focus{border-color:rgba(255,255,255,.5)}
+.selectBox option{background:#0a0a0a;color:#e8e8e8}
+
+/* 小按钮 / 全宽按钮 */
+.smallBtn,
+.fullBtn{
+  font-family:inherit;
+  cursor:pointer;
+  transition:.2s;
+  border-radius:9px;
+  border:1px solid rgba(255,255,255,.2);
+  background:rgba(255,255,255,.04);
+  color:#d8d8d8;
+}
+.smallBtn{
+  font-size:11.5px;
+  padding:7px 13px;
+  letter-spacing:.03em;
+}
+.smallBtn:hover{
+  background:rgba(255,255,255,.12);
+  border-color:rgba(255,255,255,.45);
+  color:#fff;
+}
+.fullBtn{
+  width:100%;
+  font-size:13px;
+  padding:10px 14px;
+  letter-spacing:.05em;
+  font-weight:600;
+}
+.fullBtn:hover{
+  background:rgba(255,255,255,.14);
+  border-color:rgba(255,255,255,.5);
+  color:#fff;
+}
+.fullBtn:active,.smallBtn:active{transform:scale(.985)}
 
 /* ================= 底部面板 ================= */
 #panel{
