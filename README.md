@@ -8,6 +8,8 @@
 ![Web Bluetooth](https://img.shields.io/badge/Web%20Bluetooth-API-4285F4?logo=bluetooth&logoColor=white)
 ![License](https://img.shields.io/badge/License-MIT-green)
 
+### 🔗 在线体验：**[https://xinlv.pages.dev](https://xinlv.pages.dev)**
+
 ---
 
 ## 简介
@@ -57,6 +59,12 @@ R 峰穿越检测触发星光，星光精灵预渲染以避免每帧创建渐变
 
 ## 快速开始
 
+### 在线体验
+
+直接访问：**[https://xinlv.pages.dev](https://xinlv.pages.dev)**
+
+> 用 **Chrome** 或 **Edge** 打开，点击「连接心率设备」即可。Cloudflare Pages 默认提供 HTTPS，满足 Web Bluetooth 的安全上下文要求。
+
 ### 本地运行
 
 不要直接双击 `index.html`（`file://` 协议下 Web Bluetooth 会被浏览器拦截）。用一行命令起个本地服务：
@@ -92,7 +100,7 @@ npx serve
 
 ## 使用方法
 
-1. 用 **Chrome** 或 **Edge** 打开页面（需 HTTPS 或 localhost）
+1. 用 **Chrome** 或 **Edge** 打开 [https://xinlv.pages.dev](https://xinlv.pages.dev)（或本地服务）
 2. 点击底部「连接心率设备」，在浏览器弹窗中选择你的设备
 3. 连接成功后，心电图会实时显示你的心率，每次心搏都会触发星光
 4. 未连接设备时，拖动「速度」滑块即可模拟不同强度下的心率变化
@@ -206,5 +214,6 @@ A：可以。Android 版 Chrome 支持 Web Bluetooth；iOS 由于浏览器限制
 ---
 
 <p align="center">
-  <sub>ECG · 心电监护 &nbsp;|&nbsp; Real-time Heart Monitor</sub>
+  <sub>ECG · 心电监护 &nbsp;|&nbsp; Real-time Heart Monitor</sub><br>
+  <a href="https://xinlv.pages.dev">https://xinlv.pages.dev</a>
 </p>
