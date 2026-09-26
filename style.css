@@ -152,6 +152,45 @@ body::after{
 }
 .devGroup.hw{border-color:rgba(255,255,255,.26);background:rgba(255,255,255,.045)}
 
+/* 联系胶囊按钮（邮箱 / QQ） */
+.mailLink,
+.qqLink{
+  display:inline-flex;
+  align-items:center;
+  gap:9px;
+  color:#e8e8e8;
+  font-family:ui-monospace,"SF Mono",Menlo,monospace;
+  font-size:13px;
+  letter-spacing:.03em;
+  text-decoration:none;
+  padding:7px 15px;
+  border:1px solid rgba(255,255,255,.16);
+  border-radius:9px;
+  background:rgba(255,255,255,.03);
+  transition:.2s;
+  cursor:pointer;
+}
+.mailLink:hover,
+.qqLink:hover{
+  color:#fff;
+  border-color:rgba(255,255,255,.45);
+  background:rgba(255,255,255,.09);
+}
+.mailLink::before{
+  content:'✉';
+  opacity:.65;
+}
+.qqLink::before{
+  content:'💬';
+  opacity:.75;
+  font-size:12px;
+}
+.qqLink.copied{
+  border-color:rgba(255,255,255,.6);
+  background:rgba(255,255,255,.14);
+  color:#fff;
+}
+
 /* ================= 底部面板 ================= */
 #panel{
   position:fixed;left:50%;bottom:max(16px,env(safe-area-inset-bottom));
