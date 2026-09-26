@@ -1,156 +1,160 @@
 <!DOCTYPE html>
 <html lang="zh-CN">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
-    <meta name="apple-mobile-web-app-capable" content="yes">
-    <meta name="apple-mobile-web-app-status-bar-style" content="default">
-    <title>🍅 番茄钟 · 专注统计</title>
-    <link rel="stylesheet" href="style.css">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>ECG · 心电监护</title>
+<link rel="stylesheet" href="style.css">
 </head>
 <body>
-<div class="app-container">
-    <div class="card" id="appCard">
-        <div class="main-view active" id="mainView">
-            <div class="top-nav">
-                <div class="nav-title">🍅 番茄钟</div>
-                <div class="nav-buttons">
-                    <button class="nav-btn active" data-view="timer">计时</button>
-                    <button class="nav-btn" data-view="stats">统计</button>
-                    <button class="nav-btn" data-view="settings">设置</button>
-                </div>
-            </div>
 
-            <!-- 计时子视图 -->
-            <div id="timerSubview">
-                <div class="header">
-                    <div class="title">
-                        <span>🍅</span>
-                        <span>专注时钟</span>
-                        <span class="nickname-badge" id="homeNickname">👤 专注者</span>
-                        <span class="level-badge" id="levelBadge">⭐ LV0</span>
-                    </div>
-                    <div class="stats">
-                        <div class="tomato-count" id="tomatoCount">
-                            🍅 <span id="countValue">0</span>
-                        </div>
-                        <button class="btn-icon" id="btnSound" title="声音开关">🔊</button>
-                    </div>
-                </div>
+<canvas id="c"></canvas>
 
-                <div class="timer-section">
-                    <div class="timer-ring-wrapper">
-                        <svg viewBox="0 0 300 300">
-                            <circle class="ring-bg" cx="150" cy="150" r="125"/>
-                            <circle class="ring-progress" id="ringProgress" cx="150" cy="150" r="125" stroke-dasharray="785.4" stroke-dashoffset="0"/>
-                        </svg>
-                        <div class="timer-display">
-                            <div class="timer-time" id="timerDisplay">25:00</div>
-                            <div class="timer-label" id="timerLabel">剩余时间</div>
-                        </div>
-                    </div>
-                </div>
-
-                <div class="presets" id="presetContainer">
-                    <button class="preset-btn" data-minutes="1">1分</button>
-                    <button class="preset-btn" data-minutes="5">5分</button>
-                    <button class="preset-btn" data-minutes="10">10分</button>
-                    <button class="preset-btn" data-minutes="20">20分</button>
-                    <button class="preset-btn active" data-minutes="25">25分</button>
-                    <button class="preset-btn" data-minutes="30">30分</button>
-                    <button class="preset-btn" data-minutes="60">1小时</button>
-                    <button class="preset-btn" data-minutes="75">75分</button>
-                    <button class="preset-btn" data-minutes="90">90分</button>
-                </div>
-
-                <div class="controls">
-                    <button class="btn-control btn-start" id="btnStart">▶ 开始</button>
-                    <button class="btn-control btn-reset" id="btnReset">↻ 重置</button>
-                    <button class="cycle-toggle" id="cycleToggle" title="自动循环模式">🔁 循环</button>
-                </div>
-            </div>
-
-            <!-- 统计子视图 -->
-            <div id="statsSubview" style="display:none; flex:1; flex-direction:column;">
-                <div class="summary-cards">
-                    <div class="summary-card">
-                        <div class="value" id="totalMinutes">0</div>
-                        <div class="label">专注分钟</div>
-                    </div>
-                    <div class="summary-card">
-                        <div class="value" id="totalTomatoes">0</div>
-                        <div class="label">获得番茄</div>
-                    </div>
-                    <div class="summary-card">
-                        <div class="value" id="levelDisplay">LV0</div>
-                        <div class="label">当前等级</div>
-                    </div>
-                </div>
-                <div style="font-weight:600; margin-bottom:8px; color:var(--text-primary);">历史记录</div>
-                <div class="record-list" id="recordList">
-                    <div class="empty-records">暂无记录，开始第一个番茄吧！</div>
-                </div>
-            </div>
-
-            <!-- 设置子视图 -->
-            <div id="settingsSubview" style="display:none; flex:1; flex-direction:column;">
-                <div class="settings-group">
-                    <label>昵称</label>
-                    <input type="text" id="nicknameInput" class="settings-input" placeholder="输入昵称">
-                    <button class="settings-btn btn-change-nickname" id="btnSaveNickname">保存昵称</button>
-                    <div class="settings-error" id="nicknameError"></div>
-                    <div class="settings-success" id="nicknameSuccess"></div>
-                </div>
-
-                <div class="settings-group">
-                    <label>工作与休息设置（分钟）</label>
-                    <div style="display:flex; gap:10px;">
-                        <div style="flex:1;">
-                            <label style="font-size:12px;">工作</label>
-                            <input type="number" id="workMinutesInput" class="settings-input" min="1" max="180" value="25">
-                        </div>
-                        <div style="flex:1;">
-                            <label style="font-size:12px;">休息</label>
-                            <input type="number" id="restMinutesInput" class="settings-input" min="1" max="60" value="5">
-                        </div>
-                    </div>
-                    <button class="settings-btn" id="btnSaveWorkRest" style="background:var(--tomato); color:#fff;">保存工作/休息设置</button>
-                    <div class="settings-error" id="workRestError"></div>
-                    <div class="settings-success" id="workRestSuccess"></div>
-                </div>
-
-                <!-- 数据迁移 -->
-                <div class="settings-group">
-                    <label>数据迁移</label>
-                    <p class="hint-text">生成纯数字编码，完整迁移所有数据。<br>编码包含：昵称、设置、循环开关、总专注分钟数、全部历史记录。<br>编码生成后 <strong>2 小时内有效</strong>。</p>
-                    <button class="settings-btn" id="btnExportData" style="background:#2196F3; color:#fff; margin-bottom:8px;">📤 生成数字编码</button>
-                    <textarea id="importExportArea" class="settings-input" rows="3"
-                        placeholder="点击上方按钮生成编码；或在此粘贴编码后点击下方导入"
-                        style="resize:vertical; font-size:13px; font-family:monospace; min-height:80px; word-break:break-all;"></textarea>
-                    <div class="code-info" id="codeInfo"></div>
-                    <button class="settings-btn" id="btnImportData" style="background:#4CAF50; color:#fff;">📥 导入数据</button>
-                    <button class="settings-btn" id="btnCopyCode" style="background:#f5f5f5; color:#555; margin-top:8px;">📋 复制编码</button>
-                    <div class="settings-error" id="dataError"></div>
-                    <div class="settings-success" id="dataSuccess"></div>
-                </div>
-            </div>
-
-            <div class="celebration-overlay" id="celebrationOverlay">
-                <div class="emoji">🎉</div>
-                <div class="text">时间到！</div>
-                <div class="sub-text" id="celebrationSubText">干得漂亮，休息一下吧</div>
-            </div>
-
-            <div class="success-overlay" id="successOverlay">
-                <div class="emoji">🥳</div>
-                <div class="text">操作成功</div>
-                <div class="sub-text" id="successMessage">耶耶耶太好了</div>
-                <button class="btn-close-success" id="btnCloseSuccess" type="button">太棒了</button>
-            </div>
-        </div>
-    </div>
+<div id="hud">
+  <div id="bpmRow">
+    <span id="bpmVal">--</span>
+    <span id="bpmUnit">BPM</span>
+  </div>
+  <div id="bpmSub">HEART RATE · <b id="srcTag">SIM</b></div>
 </div>
 
-<script src="script.js" defer></script>
+<button id="aboutBtn">关于</button>
+
+<div id="aboutPanel">
+  <div class="aboutCard">
+    <button class="aboutClose" id="aboutClose">✕</button>
+
+    <div class="aboutTitle">ECG · 心电监护</div>
+    <div class="aboutSub">Real-time Heart Monitor</div>
+
+    <div class="aboutSection">
+      <h3>关于本站</h3>
+      <p>
+        本站通过浏览器 <b>Web Bluetooth</b> 直连支持标准 BLE 心率服务
+        （<b>0x180D</b>）的设备，实时绘制滚动心电图。每次心搏都会在 R 峰位置
+        迸发一簇白色星光。
+        <br><br>
+        未连接设备时自动进入<b>模拟模式</b>，拖动底部的速度滑块可改变运动强度，
+        心率会随强度平滑上升并带轻微波动，适合演示与调试。
+      </p>
+    </div>
+
+    <div class="aboutSection">
+      <h3>兼容设备</h3>
+      <p class="note">
+        只要设备支持标准 BLE 心率服务（0x180D）即可连接。部分手表/手环需先在设备端
+        手动开启「心率广播」或「心率推送」功能，浏览器才能搜索到。
+      </p>
+
+      <div class="devGrid">
+
+        <div class="devGroup hw">
+          <h4>华为 HUAWEI</h4>
+          <ul>
+            <li>WATCH GT 2 / 3 / 4 / 5</li>
+            <li>WATCH 4 / 4 Pro / 5</li>
+            <li>WATCH Ultimate</li>
+            <li>WATCH FIT 2 / 3 / 4</li>
+            <li>手环 8 / 9 / 10</li>
+            <li>手环 4 / 5 / 6 / 7</li>
+          </ul>
+        </div>
+
+        <div class="devGroup">
+          <h4>Polar</h4>
+          <ul>
+            <li>H10</li>
+            <li>H9</li>
+            <li>OH1</li>
+            <li>Verity Sense</li>
+          </ul>
+        </div>
+
+        <div class="devGroup">
+          <h4>Garmin</h4>
+          <ul>
+            <li>HRM-Dual</li>
+            <li>HRM-Pro</li>
+            <li>HRM-Pro Plus</li>
+            <li>支持广播的 Garmin 手表</li>
+          </ul>
+        </div>
+
+        <div class="devGroup">
+          <h4>Wahoo</h4>
+          <ul>
+            <li>TICKR</li>
+            <li>TICKR X</li>
+            <li>TICKR X2</li>
+            <li>TICKR FIT</li>
+          </ul>
+        </div>
+
+        <div class="devGroup">
+          <h4>小米 / Amazfit</h4>
+          <ul>
+            <li>小米手环 6 / 7 / 8 / 9 / 10</li>
+            <li>Amazfit Band 系列</li>
+            <li>Amazfit GTR / GTS</li>
+          </ul>
+        </div>
+
+        <div class="devGroup">
+          <h4>Samsung</h4>
+          <ul>
+            <li>Galaxy Watch 4 / 5 / 6 / 7 / 8</li>
+            <li>Galaxy Watch FE</li>
+            <li>Galaxy Watch Ultra</li>
+          </ul>
+        </div>
+
+        <div class="devGroup">
+          <h4>Apple</h4>
+          <ul>
+            <li>Apple Watch Series 1–11</li>
+            <li>Apple Watch SE</li>
+            <li>Apple Watch Ultra</li>
+            <li>需开启心率广播</li>
+          </ul>
+        </div>
+
+        <div class="devGroup">
+          <h4>其他品牌</h4>
+          <ul>
+            <li>Suunto 智能心率带</li>
+            <li>Decathlon / Kalenji 双模心率带</li>
+            <li>moofit 心率监测器</li>
+            <li>MyZone 系列</li>
+            <li>Coospo / Magene 心率带</li>
+          </ul>
+        </div>
+
+      </div>
+    </div>
+
+    <div class="aboutSection">
+      <h3>使用提示</h3>
+      <p>
+        · 建议使用 <b>Chrome</b> 或 <b>Edge</b> 等 Chromium 内核浏览器<br>
+        · 页面必须运行在 <b>HTTPS</b> 或 <b>localhost</b> 下，蓝牙才可用<br>
+        · 搜索时请确保设备处于配对模式且未被其他 App 占用<br>
+        · 若设备未广播标准服务，可尝试在代码中改用 <b>acceptAllDevices</b> 兜底
+      </p>
+    </div>
+
+  </div>
+</div>
+
+<div id="panel">
+  <button id="btnConnect">连接心率设备</button>
+  <div class="row">
+    <span class="lbl">速度</span>
+    <input id="speed" type="range" min="0" max="20" step="0.1" value="0">
+    <span id="speedVal">0.0 km/h</span>
+  </div>
+  <div id="status">模拟模式 · 拖动滑块改变运动强度</div>
+</div>
+
+<script src="script.js"></script>
 </body>
 </html>

@@ -1,899 +1,508 @@
-(function() {
-    'use strict';
+(function () {
+'use strict';
 
-    // ==================== 数据存储 ====================
-    const NICKNAME_KEY = 'pomodoro_nickname';
-    const RECORDS_KEY = 'pomodoro_records';
-    const TOTAL_MINUTES_KEY = 'pomodoro_total_minutes';
-    const SETTINGS_KEY = 'pomodoro_work_rest_settings';
-    const CYCLE_KEY = 'pomodoro_auto_cycle';
+/* ==========================================================
+   画布 / 尺寸
+========================================================== */
+const canvas = document.getElementById('c');
+const ctx    = canvas.getContext('2d');
 
-    const DEFAULT_SETTINGS = { workMinutes: 25, restMinutes: 5 };
-    const BASE_TIME = new Date('2020-01-01T00:00:00Z').getTime();
-    const CODE_VALID_MS = 2 * 60 * 60 * 1000; // 2 小时
+let W = 0, H = 0, DPR = 1, cx = 0, cy = 0;
+let A = 160;
+let baseY = 0;
 
-    let nickname = localStorage.getItem(NICKNAME_KEY) || '专注者';
-    let records = [];
-    try { records = JSON.parse(localStorage.getItem(RECORDS_KEY)) || []; } catch(e) { records = []; }
-    let settings = { ...DEFAULT_SETTINGS };
-    try { const saved = JSON.parse(localStorage.getItem(SETTINGS_KEY)); if (saved && saved.workMinutes) settings = saved; } catch(e) {}
-    let autoCycle = localStorage.getItem(CYCLE_KEY) === 'true';
+const TAU = Math.PI * 2;
 
-    let totalMinutesStored = parseInt(localStorage.getItem(TOTAL_MINUTES_KEY), 10);
-    if (isNaN(totalMinutesStored)) totalMinutesStored = records.reduce((sum, r) => sum + (r.minutes || 0), 0);
+function resize() {
+  DPR = Math.min(window.devicePixelRatio || 1, 2);
+  W = window.innerWidth;
+  H = window.innerHeight;
 
-    function saveRecords() { localStorage.setItem(RECORDS_KEY, JSON.stringify(records)); }
-    function saveSettings() { localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings)); }
-    function saveCycle() { localStorage.setItem(CYCLE_KEY, autoCycle.toString()); }
-    function saveTotalMinutes(n) { totalMinutesStored = n; localStorage.setItem(TOTAL_MINUTES_KEY, n.toString()); }
+  canvas.width  = Math.round(W * DPR);
+  canvas.height = Math.round(H * DPR);
+  canvas.style.width  = W + 'px';
+  canvas.style.height = H + 'px';
+  ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
 
-    function calculateTomatoes(totalMinutes) { return Math.floor(totalMinutes / 30); }
-    function calculateLevel(tomatoes) {
-        if (tomatoes >= 10000) return 6;
-        if (tomatoes >= 1000) return 5;
-        if (tomatoes >= 200) return 4;
-        if (tomatoes >= 100) return 3;
-        if (tomatoes >= 50) return 2;
-        if (tomatoes >= 20) return 1;
-        return 0;
+  cx = W / 2;
+  cy = H / 2;
+
+  A     = Math.min(H * 0.26, 200);
+  baseY = cy + 0.375 * A;
+}
+
+window.addEventListener('resize', resize);
+window.addEventListener('orientationchange', () => setTimeout(resize, 120));
+
+/* ==========================================================
+   状态
+========================================================== */
+const SAMPLE_MS = 5;
+const PX_PER_MS = 0.50;
+
+let simTime        = 0;
+let nextSampleTime = 0;
+
+let samples = [];
+let phase   = 0;
+let beatEnv = 0;
+
+let bpm          = 72;
+let beatInterval = 60000 / 72;
+let speed        = 0;
+let usingReal    = false;
+let realBpm      = 0;
+
+const sparks  = [];
+const ripples = [];
+
+/* ==========================================================
+   心电波形
+========================================================== */
+function ecgAt(t) {
+  let v = 0;
+  v += 0.090 * Math.exp(-Math.pow((t - 0.120) / 0.0250, 2));
+  v -= 0.130 * Math.exp(-Math.pow((t - 0.213) / 0.0080, 2));
+  v += 1.000 * Math.exp(-Math.pow((t - 0.235) / 0.0105, 2));
+  v -= 0.250 * Math.exp(-Math.pow((t - 0.262) / 0.0120, 2));
+  v += 0.250 * Math.exp(-Math.pow((t - 0.420) / 0.0480, 2));
+  return v;
+}
+
+/* ==========================================================
+   星光精灵
+========================================================== */
+function makeSprite(r, g, b) {
+  const S = 64;
+  const c = document.createElement('canvas');
+  c.width = c.height = S;
+  const x = c.getContext('2d');
+  const grd = x.createRadialGradient(S/2, S/2, 0, S/2, S/2, S/2);
+  grd.addColorStop(0.00, 'rgba(' + r + ',' + g + ',' + b + ',1)');
+  grd.addColorStop(0.14, 'rgba(' + r + ',' + g + ',' + b + ',0.95)');
+  grd.addColorStop(0.34, 'rgba(' + r + ',' + g + ',' + b + ',0.34)');
+  grd.addColorStop(0.62, 'rgba(' + r + ',' + g + ',' + b + ',0.08)');
+  grd.addColorStop(1.00, 'rgba(' + r + ',' + g + ',' + b + ',0)');
+  x.fillStyle = grd;
+  x.fillRect(0, 0, S, S);
+  return c;
+}
+
+const SPARK_SPRITES = [
+  makeSprite(255, 255, 255),
+  makeSprite(255, 255, 255),
+  makeSprite(225, 225, 225),
+  makeSprite(190, 190, 190)
+];
+
+/* ==========================================================
+   心跳 → 星光迸发
+========================================================== */
+function onBeat(beatTime) {
+  const x = W - (simTime - beatTime) * PX_PER_MS;
+  const y = baseY - A * 0.95;
+
+  const n = 18 + (Math.random() * 10 | 0);
+
+  for (let i = 0; i < n; i++) {
+    const ang = Math.random() * TAU;
+    const spd = 50 + Math.random() * 210;
+
+    sparks.push({
+      x, y,
+      vx: Math.cos(ang) * spd,
+      vy: Math.sin(ang) * spd,
+      life: 1,
+      decay: 0.7 + Math.random() * 1.2,
+      size: 1.5 + Math.random() * 3.6,
+      sprite: SPARK_SPRITES[(Math.random() * SPARK_SPRITES.length) | 0]
+    });
+  }
+
+  ripples.push({
+    x, y,
+    r: 4,
+    maxR: 90 + Math.random() * 60,
+    life: 1,
+    decay: 1.5 + Math.random() * 0.7
+  });
+}
+
+/* ==========================================================
+   更新
+========================================================== */
+function update(dt) {
+  let target;
+  if (usingReal && realBpm > 0) {
+    target = realBpm;
+  } else {
+    const now = performance.now() / 1000;
+    target = 68 + 112 * (1 - Math.exp(-speed / 7.5))
+           + Math.sin(now * 1.50) * 2.2
+           + Math.sin(now * 0.53 + 1.3) * 1.6;
+  }
+
+  bpm += (target - bpm) * (1 - Math.exp(-dt / 800));
+  bpm = Math.max(30, Math.min(220, bpm));
+  beatInterval = 60000 / bpm;
+
+  simTime += dt;
+
+  let guard = 0;
+  const R = 0.235;
+
+  while (nextSampleTime <= simTime && guard++ < 300) {
+    const prevPhase = phase;
+    phase += SAMPLE_MS / beatInterval;
+
+    let wrapped = false;
+    if (phase >= 1) { phase -= 1; wrapped = true; }
+
+    samples.push({ t: nextSampleTime, v: ecgAt(phase) });
+
+    let hit;
+    if (!wrapped) {
+      hit = (prevPhase < R && phase >= R);
+    } else {
+      hit = (prevPhase < R) || (phase >= R);
     }
-    function getTotalFocusMinutes() { return totalMinutesStored; }
-    function getTomatoCount() { return calculateTomatoes(getTotalFocusMinutes()); }
-    function getLevel() { return calculateLevel(getTomatoCount()); }
+    if (hit) onBeat(nextSampleTime);
 
-    // ==================== 番茄钟状态 ====================
-    const state = {
-        mode: 'work',
-        workMinutes: settings.workMinutes,
-        restMinutes: settings.restMinutes,
-        totalSeconds: settings.workMinutes * 60,
-        remainingSeconds: settings.workMinutes * 60,
-        isRunning: false,
-        isPaused: false,
-        soundEnabled: true,
-        timerId: null,
-        lastTickTime: 0,
-        accumulatedPauseMs: 0,
-        pauseStartTime: 0,
-        totalDurationMs: settings.workMinutes * 60 * 1000,
-    };
+    nextSampleTime += SAMPLE_MS;
+  }
 
-    // DOM元素
-    const timerSubview = document.getElementById('timerSubview');
-    const statsSubview = document.getElementById('statsSubview');
-    const settingsSubview = document.getElementById('settingsSubview');
-    const navBtns = document.querySelectorAll('.nav-btn');
-    const btnSound = document.getElementById('btnSound');
-    const btnStart = document.getElementById('btnStart');
-    const btnReset = document.getElementById('btnReset');
-    const cycleToggle = document.getElementById('cycleToggle');
-    const timerDisplay = document.getElementById('timerDisplay');
-    const timerLabel = document.getElementById('timerLabel');
-    const ringProgress = document.getElementById('ringProgress');
-    const presetContainer = document.getElementById('presetContainer');
-    const countValueEl = document.getElementById('countValue');
-    const tomatoCountEl = document.getElementById('tomatoCount');
-    const homeNickname = document.getElementById('homeNickname');
-    const levelBadge = document.getElementById('levelBadge');
-    const celebrationOverlay = document.getElementById('celebrationOverlay');
-    const successOverlay = document.getElementById('successOverlay');
-    const btnCloseSuccess = document.getElementById('btnCloseSuccess');
-    const successMessage = document.getElementById('successMessage');
-    const celebrationSubText = document.getElementById('celebrationSubText');
+  const maxAge = (W + 260) / PX_PER_MS;
+  while (samples.length && (simTime - samples[0].t) > maxAge) {
+    samples.shift();
+  }
 
-    const totalMinutesEl = document.getElementById('totalMinutes');
-    const totalTomatoesEl = document.getElementById('totalTomatoes');
-    const levelDisplayEl = document.getElementById('levelDisplay');
-    const recordListEl = document.getElementById('recordList');
+  let d = phase - R;
+  if (d < 0) d += 1;
+  beatEnv = Math.exp(-d * 17);
 
-    const nicknameInput = document.getElementById('nicknameInput');
-    const btnSaveNickname = document.getElementById('btnSaveNickname');
-    const nicknameError = document.getElementById('nicknameError');
-    const nicknameSuccess = document.getElementById('nicknameSuccess');
+  bpmVal.textContent = Math.round(bpm);
+  bpmVal.style.transform = 'scale(' + (1 + beatEnv * 0.05).toFixed(4) + ')';
+}
 
-    const workMinutesInput = document.getElementById('workMinutesInput');
-    const restMinutesInput = document.getElementById('restMinutesInput');
-    const btnSaveWorkRest = document.getElementById('btnSaveWorkRest');
-    const workRestError = document.getElementById('workRestError');
-    const workRestSuccess = document.getElementById('workRestSuccess');
+/* ==========================================================
+   绘制：网格
+========================================================== */
+function drawGrid() {
+  const minor = 10, major = 50;
 
-    // 导入/导出 DOM
-    const btnExportData = document.getElementById('btnExportData');
-    const btnImportData = document.getElementById('btnImportData');
-    const btnCopyCode = document.getElementById('btnCopyCode');
-    const importExportArea = document.getElementById('importExportArea');
-    const codeInfo = document.getElementById('codeInfo');
-    const dataError = document.getElementById('dataError');
-    const dataSuccess = document.getElementById('dataSuccess');
+  ctx.lineWidth = 1;
 
-    const RING_CIRCUMFERENCE = 785.4;
-    let successTimeout = null;
+  ctx.strokeStyle = 'rgba(255,255,255,0.030)';
+  ctx.beginPath();
+  for (let x = 0; x < W; x += minor) { ctx.moveTo(x + .5, 0); ctx.lineTo(x + .5, H); }
+  for (let y = 0; y < H; y += minor) { ctx.moveTo(0, y + .5); ctx.lineTo(W, y + .5); }
+  ctx.stroke();
 
-    // ==================== 更新UI ====================
-    function formatTime(totalSeconds) {
-        const secs = Math.max(0, Math.floor(totalSeconds));
-        const hours = Math.floor(secs / 3600);
-        const minutes = Math.floor((secs % 3600) / 60);
-        const seconds = secs % 60;
-        if (hours > 0) return `${hours}:${String(minutes).padStart(2,'0')}:${String(seconds).padStart(2,'0')}`;
-        return `${String(minutes).padStart(2,'0')}:${String(seconds).padStart(2,'0')}`;
+  ctx.strokeStyle = 'rgba(255,255,255,0.065)';
+  ctx.beginPath();
+  for (let x = 0; x < W; x += major) { ctx.moveTo(x + .5, 0); ctx.lineTo(x + .5, H); }
+  for (let y = 0; y < H; y += major) { ctx.moveTo(0, y + .5); ctx.lineTo(W, y + .5); }
+  ctx.stroke();
+
+  ctx.strokeStyle = 'rgba(255,255,255,0.09)';
+  ctx.beginPath();
+  ctx.moveTo(0, baseY + .5);
+  ctx.lineTo(W, baseY + .5);
+  ctx.stroke();
+}
+
+/* ==========================================================
+   绘制：心电波形
+========================================================== */
+function drawWave() {
+  const n = samples.length;
+  if (n < 2) return;
+
+  const path = new Path2D();
+  let started = false;
+
+  for (let i = 0; i < n; i++) {
+    const s = samples[i];
+    const x = W - (simTime - s.t) * PX_PER_MS;
+    if (x < -30) continue;
+    if (x > W + 30) break;
+
+    const y = baseY - s.v * A;
+    if (!started) { path.moveTo(x, y); started = true; }
+    else path.lineTo(x, y);
+  }
+  if (!started) return;
+
+  const grad = ctx.createLinearGradient(0, 0, W * 0.26, 0);
+  grad.addColorStop(0, 'rgba(255,255,255,0)');
+  grad.addColorStop(1, 'rgba(255,255,255,1)');
+
+  ctx.save();
+  ctx.lineCap  = 'round';
+  ctx.lineJoin = 'round';
+  ctx.strokeStyle = grad;
+
+  const layers = [
+    { w: 16,  a: 0.035 },
+    { w: 8,   a: 0.070 },
+    { w: 4,   a: 0.160 },
+    { w: 2,   a: 0.400 },
+    { w: 0.95,a: 1.000 }
+  ];
+
+  for (let i = 0; i < layers.length; i++) {
+    ctx.globalAlpha = layers[i].a;
+    ctx.lineWidth   = layers[i].w;
+    ctx.stroke(path);
+  }
+
+  ctx.restore();
+  ctx.globalAlpha = 1;
+}
+
+/* ==========================================================
+   绘制：星光 + 涟漪
+========================================================== */
+function drawSparks(dtSec) {
+  ctx.save();
+  ctx.globalCompositeOperation = 'lighter';
+
+  const damp = Math.pow(0.16, dtSec);
+
+  for (let i = sparks.length - 1; i >= 0; i--) {
+    const p = sparks[i];
+
+    p.life -= dtSec * p.decay;
+    if (p.life <= 0) { sparks.splice(i, 1); continue; }
+
+    p.x += p.vx * dtSec;
+    p.y += p.vy * dtSec;
+    p.vx *= damp;
+    p.vy *= damp;
+
+    const a  = p.life * p.life;
+    const sz = p.size * (0.4 + p.life * 0.95) * 7;
+
+    ctx.globalAlpha = a;
+    ctx.drawImage(p.sprite, p.x - sz / 2, p.y - sz / 2, sz, sz);
+
+    if (p.size > 2.4 && p.life > 0.35) {
+      const L = p.size * 5.5 * p.life;
+      ctx.globalAlpha = a * 0.6;
+      ctx.fillStyle = '#fff';
+      ctx.fillRect(p.x - L, p.y - 0.5, L * 2, 1);
+      ctx.fillRect(p.x - 0.5, p.y - L, 1, L * 2);
     }
+  }
 
-    function updateDisplay() {
-        timerDisplay.textContent = formatTime(state.remainingSeconds);
-        timerDisplay.classList.toggle('small', state.remainingSeconds >= 3600);
-        const ratio = state.totalSeconds > 0 ? state.remainingSeconds / state.totalSeconds : 0;
-        timerDisplay.classList.remove('warning','danger');
-        if (state.isRunning || state.isPaused) {
-            if (ratio <= 0.1 && state.remainingSeconds > 0) timerDisplay.classList.add('danger');
-            else if (ratio <= 0.25 && state.remainingSeconds > 0) timerDisplay.classList.add('warning');
-        }
-        if (state.mode === 'rest') {
-            timerLabel.textContent = state.isRunning ? '休息中' : state.isPaused ? '休息暂停' : '休息时间';
-            timerLabel.classList.add('rest');
-            timerDisplay.style.color = 'var(--rest-green)';
-        } else {
-            timerLabel.textContent = state.isRunning ? '专注中' : state.isPaused ? '已暂停' : '剩余时间';
-            timerLabel.classList.remove('rest');
-            timerDisplay.style.color = 'var(--text-primary)';
-        }
-        document.title = state.isRunning ? `⏱ ${formatTime(state.remainingSeconds)} (${state.mode === 'rest' ? '休息' : '专注'})` : '🍅 番茄钟';
+  for (let i = ripples.length - 1; i >= 0; i--) {
+    const rp = ripples[i];
+    rp.life -= dtSec * rp.decay;
+    if (rp.life <= 0) { ripples.splice(i, 1); continue; }
+
+    const t = 1 - rp.life;
+    const ease = 1 - Math.pow(1 - t, 2.4);
+    const r = rp.r + (rp.maxR - rp.r) * ease;
+
+    ctx.globalAlpha = rp.life * rp.life * 0.55;
+    ctx.strokeStyle = '#fff';
+    ctx.lineWidth = 1.6 * rp.life + 0.2;
+    ctx.beginPath();
+    ctx.arc(rp.x, rp.y, r, 0, TAU);
+    ctx.stroke();
+  }
+
+  ctx.restore();
+  ctx.globalAlpha = 1;
+}
+
+/* ==========================================================
+   渲染
+========================================================== */
+function render(dtSec) {
+  ctx.fillStyle = '#000';
+  ctx.fillRect(0, 0, W, H);
+
+  drawGrid();
+  drawWave();
+  drawSparks(dtSec);
+}
+
+/* ==========================================================
+   主循环
+========================================================== */
+let lastT = 0;
+
+function loop(now) {
+  if (!lastT) lastT = now;
+  let dt = now - lastT;
+  lastT = now;
+
+  if (dt < 0)  dt = 0;
+  if (dt > 50) dt = 50;
+
+  update(dt);
+  render(dt / 1000);
+
+  requestAnimationFrame(loop);
+}
+
+/* ==========================================================
+   DOM 引用
+========================================================== */
+const btnConn  = document.getElementById('btnConnect');
+const statusEl = document.getElementById('status');
+const speedEl  = document.getElementById('speed');
+const speedVal = document.getElementById('speedVal');
+const bpmVal   = document.getElementById('bpmVal');
+const srcTag   = document.getElementById('srcTag');
+
+const aboutBtn   = document.getElementById('aboutBtn');
+const aboutPanel = document.getElementById('aboutPanel');
+const aboutClose = document.getElementById('aboutClose');
+
+/* ==========================================================
+   关于面板
+========================================================== */
+function openAbout()  { aboutPanel.classList.add('show'); }
+function closeAbout() { aboutPanel.classList.remove('show'); }
+
+aboutBtn.addEventListener('click', openAbout);
+aboutClose.addEventListener('click', closeAbout);
+aboutPanel.addEventListener('click', function (e) {
+  if (e.target === aboutPanel) closeAbout();
+});
+document.addEventListener('keydown', function (e) {
+  if (e.key === 'Escape') closeAbout();
+});
+
+/* ==========================================================
+   蓝牙心率
+========================================================== */
+function setStatus(text, cls) {
+  statusEl.textContent = text;
+  statusEl.className = cls || '';
+}
+
+function parseHR(event) {
+  const dv = event.target.value;
+  if (!dv || dv.byteLength < 2) return;
+
+  const flags = dv.getUint8(0);
+  const is16  = (flags & 0x01) !== 0;
+  const hr    = is16 ? dv.getUint16(1, true) : dv.getUint8(1);
+
+  if (hr >= 25 && hr <= 230) {
+    realBpm   = hr;
+    usingReal = true;
+  }
+}
+
+async function connect() {
+  if (!navigator.bluetooth) {
+    setStatus('当前浏览器不支持 Web Bluetooth', 'warn');
+    return;
+  }
+
+  try {
+    btnConn.disabled = true;
+    setStatus('正在搜索附近的心率设备…');
+
+    const device = await navigator.bluetooth.requestDevice({
+      filters: [{ services: ['heart_rate'] }]
+      // 若设备未广播标准服务，可改为：
+      // acceptAllDevices: true,
+      // optionalServices: ['heart_rate']
+    });
+
+    device.addEventListener('gattserverdisconnected', onDisconnected);
+    setStatus('正在连接 ' + (device.name || '未知设备') + ' …');
+
+    const server = await device.gatt.connect();
+    const svc    = await server.getPrimaryService('heart_rate');
+    const ch     = await svc.getCharacteristic('heart_rate_measurement');
+
+    await ch.startNotifications();
+    ch.addEventListener('characteristicvaluechanged', parseHR);
+
+    usingReal = true;
+    speedEl.disabled = true;
+
+    btnConn.textContent = '断开连接';
+    btnConn.dataset.on  = '1';
+    btnConn.disabled    = false;
+
+    srcTag.textContent = 'LIVE';
+    setStatus('已连接 · ' + (device.name || '心率设备') + ' · 实时接收中', 'ok');
+
+  } catch (err) {
+    btnConn.disabled = false;
+    usingReal = false;
+    speedEl.disabled = false;
+
+    if (err && err.name === 'NotFoundError') {
+      setStatus('已取消选择设备');
+    } else if (err && err.name === 'SecurityError') {
+      setStatus('需要 HTTPS 或 localhost 才能使用蓝牙', 'warn');
+    } else {
+      setStatus('连接失败：' + (err && err.message ? err.message : err), 'warn');
     }
+  }
+}
 
-    function updateRing() {
-        const ratio = state.totalSeconds > 0 ? state.remainingSeconds / state.totalSeconds : 0;
-        const offset = RING_CIRCUMFERENCE * (1 - ratio);
-        ringProgress.setAttribute('stroke-dashoffset', offset);
-        ringProgress.classList.remove('warning','danger','rest');
-        if (state.mode === 'rest') {
-            ringProgress.classList.add('rest');
-        } else if (state.isRunning || state.isPaused) {
-            if (ratio <= 0.1 && state.remainingSeconds > 0) ringProgress.classList.add('danger');
-            else if (ratio <= 0.25 && state.remainingSeconds > 0) ringProgress.classList.add('warning');
-        }
-        if (state.remainingSeconds <= 0) ringProgress.classList.remove('warning','danger');
-    }
+function onDisconnected() {
+  usingReal = false;
+  speedEl.disabled = false;
+  btnConn.textContent = '连接心率设备';
+  btnConn.dataset.on  = '0';
+  srcTag.textContent  = 'SIM';
+  setStatus('设备已断开 · 已切回模拟模式');
+}
 
-    function updatePresetButtons() {
-        document.querySelectorAll('.preset-btn').forEach(btn => {
-            const min = parseInt(btn.dataset.minutes, 10);
-            btn.classList.toggle('active', min === state.workMinutes);
+btnConn.addEventListener('click', function () {
+  if (btnConn.dataset.on === '1') {
+    if (navigator.bluetooth && navigator.bluetooth.getDevices) {
+      navigator.bluetooth.getDevices().then(list => {
+        list.forEach(d => {
+          try { if (d.gatt && d.gatt.connected) d.gatt.disconnect(); } catch (e) {}
         });
+      }).catch(() => {});
     }
+    onDisconnected();
+    return;
+  }
+  connect();
+});
+
+/* ==========================================================
+   速度滑块
+========================================================== */
+speedEl.addEventListener('input', function () {
+  speed = parseFloat(speedEl.value) || 0;
+  speedVal.textContent = speed.toFixed(1) + ' km/h';
+});
+
+/* ==========================================================
+   初始化
+========================================================== */
+function init() {
+  if (!navigator.bluetooth) {
+    btnConn.disabled = true;
+    btnConn.textContent = '浏览器不支持 Web Bluetooth';
+    setStatus('请使用 Chrome / Edge（HTTPS 或 localhost）', 'warn');
+  } else if (location.protocol === 'file:') {
+    setStatus('提示：蓝牙需在 https 或 localhost 下使用', 'warn');
+  }
+
+  speedVal.textContent = speed.toFixed(1) + ' km/h';
+
+  resize();
+  nextSampleTime = 0;
+  simTime = 0;
+
+  requestAnimationFrame(loop);
+}
+
+init();
 
-    function updateStartButton() {
-        if (state.isRunning) {
-            btnStart.textContent = '⏸ 暂停';
-            btnStart.classList.add('paused');
-        } else if (state.isPaused) {
-            btnStart.textContent = '▶ 继续';
-            btnStart.classList.add('paused');
-        } else {
-            btnStart.textContent = '▶ 开始';
-            btnStart.classList.remove('paused');
-        }
-    }
-
-    function updateSoundButton() { btnSound.textContent = state.soundEnabled ? '🔊' : '🔇'; }
-
-    function updateCycleButton() {
-        cycleToggle.classList.toggle('active', autoCycle);
-        cycleToggle.textContent = autoCycle ? '🔁 循环开' : '🔁 循环关';
-    }
-
-    function updateLevelAndStats() {
-        const totalMinutes = getTotalFocusMinutes();
-        const tomatoes = getTomatoCount();
-        const level = getLevel();
-        countValueEl.textContent = tomatoes;
-        levelBadge.textContent = `⭐ LV${level}`;
-        totalMinutesEl.textContent = totalMinutes;
-        totalTomatoesEl.textContent = tomatoes;
-        levelDisplayEl.textContent = `LV${level}`;
-    }
-
-    function updateStatsAndRecords() {
-        updateLevelAndStats();
-        recordListEl.innerHTML = '';
-        if (records.length === 0) {
-            recordListEl.innerHTML = '<div class="empty-records">暂无记录，开始第一个番茄吧！</div>';
-            return;
-        }
-        const sorted = [...records].sort((a, b) => b.timestamp - a.timestamp);
-        sorted.forEach(record => {
-            const item = document.createElement('div');
-            item.className = 'record-item';
-            const dateStr = new Date(record.timestamp).toLocaleString('zh-CN', {
-                month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit'
-            });
-            item.innerHTML = `<span class="date">${dateStr}</span><span class="duration">${record.minutes} 分钟</span>`;
-            recordListEl.appendChild(item);
-        });
-    }
-
-    function updateNicknameDisplay() {
-        homeNickname.textContent = `👤 ${nickname}`;
-        nicknameInput.value = nickname;
-    }
-
-    function updateAllUI() {
-        updateDisplay();
-        updateRing();
-        updatePresetButtons();
-        updateStartButton();
-        updateSoundButton();
-        updateCycleButton();
-        updateLevelAndStats();
-        updateNicknameDisplay();
-    }
-
-    // ==================== 昵称 ====================
-    btnSaveNickname.addEventListener('click', () => {
-        const newNickname = nicknameInput.value.trim();
-        if (!newNickname) {
-            nicknameError.textContent = '请输入昵称';
-            nicknameSuccess.textContent = '';
-            return;
-        }
-        nickname = newNickname;
-        localStorage.setItem(NICKNAME_KEY, nickname);
-        updateNicknameDisplay();
-        nicknameError.textContent = '';
-        nicknameSuccess.textContent = '昵称已保存';
-        showSuccess('昵称保存成功', '耶耶耶太好了');
-        setTimeout(() => { nicknameSuccess.textContent = ''; }, 2000);
-    });
-
-    // ==================== 工作/休息设置 ====================
-    function loadSettingsToInputs() {
-        workMinutesInput.value = settings.workMinutes;
-        restMinutesInput.value = settings.restMinutes;
-    }
-
-    btnSaveWorkRest.addEventListener('click', () => {
-        const wm = parseInt(workMinutesInput.value, 10);
-        const rm = parseInt(restMinutesInput.value, 10);
-        if (isNaN(wm) || wm <= 0 || isNaN(rm) || rm <= 0) {
-            workRestError.textContent = '请输入有效的分钟数';
-            workRestSuccess.textContent = '';
-            return;
-        }
-        if (wm > 180) { workRestError.textContent = '工作分钟数不能超过180'; return; }
-        if (rm > 60) { workRestError.textContent = '休息分钟数不能超过60'; return; }
-        settings.workMinutes = wm;
-        settings.restMinutes = rm;
-        saveSettings();
-        state.workMinutes = wm;
-        state.restMinutes = rm;
-        if (state.mode === 'work') {
-            state.totalSeconds = wm * 60;
-            state.totalDurationMs = wm * 60 * 1000;
-            if (!state.isRunning && !state.isPaused) state.remainingSeconds = state.totalSeconds;
-        } else {
-            state.totalSeconds = rm * 60;
-            state.totalDurationMs = rm * 60 * 1000;
-            if (!state.isRunning && !state.isPaused) state.remainingSeconds = state.totalSeconds;
-        }
-        updatePresetButtons();
-        updateDisplay();
-        updateRing();
-        workRestError.textContent = '';
-        workRestSuccess.textContent = '设置已保存';
-        showSuccess('设置已保存', '工作/休息时间已更新');
-        setTimeout(() => { workRestSuccess.textContent = ''; }, 2000);
-    });
-
-    // ==================== 循环开关 ====================
-    cycleToggle.addEventListener('click', () => {
-        autoCycle = !autoCycle;
-        saveCycle();
-        updateCycleButton();
-    });
-
-    // ==================== 纯数字编码：导入/导出 ====================
-
-    function writeVarint(bytes, n) {
-        n = n >>> 0;
-        while (n >= 0x80) {
-            bytes.push((n & 0x7F) | 0x80);
-            n >>>= 7;
-        }
-        bytes.push(n);
-    }
-
-    function readVarint(bytes, pos) {
-        let result = 0;
-        let shift = 0;
-        let b;
-        do {
-            if (pos >= bytes.length) throw new Error('编码不完整');
-            b = bytes[pos++];
-            result |= (b & 0x7F) << shift;
-            shift += 7;
-            if (shift > 35) throw new Error('varint 过长');
-        } while (b & 0x80);
-        return { value: result >>> 0, pos };
-    }
-
-    function writeVarintSigned(bytes, n) {
-        const zigzag = ((n << 1) ^ (n >> 31)) >>> 0;
-        writeVarint(bytes, zigzag);
-    }
-
-    function readVarintSigned(bytes, pos) {
-        const r = readVarint(bytes, pos);
-        const value = (r.value >>> 1) ^ -(r.value & 1);
-        return { value, pos: r.pos };
-    }
-
-    function bytesToDecimalString(bytes) {
-        let n = 0n;
-        for (const b of bytes) {
-            n = (n << 8n) | BigInt(b);
-        }
-        return n.toString();
-    }
-
-    function decimalStringToBytes(str) {
-        if (!/^\d+$/.test(str)) throw new Error('编码格式错误，只允许数字');
-        let n = BigInt(str);
-        if (n === 0n) throw new Error('编码无效');
-        const bytes = [];
-        while (n > 0n) {
-            bytes.unshift(Number(n & 0xFFn));
-            n >>= 8n;
-        }
-        return bytes;
-    }
-
-    // 编码：完整记录 + 时间戳
-    function encodeData() {
-        const bytes = [];
-        bytes.push(1); // 版本
-
-        let flags = 0;
-        if (autoCycle) flags |= 1;
-        bytes.push(flags);
-
-        bytes.push(settings.workMinutes & 0xFF);
-        bytes.push(settings.restMinutes & 0xFF);
-
-        // 总专注分钟数（根据记录重新计算，保证一致）
-        const totalMinutes = records.reduce((sum, r) => sum + (r.minutes || 0), 0);
-        writeVarint(bytes, totalMinutes);
-
-        // 导出时间戳
-        writeVarint(bytes, Date.now());
-
-        // 昵称
-        const nickBytes = new TextEncoder().encode(nickname.slice(0, 20));
-        const nickLen = Math.min(nickBytes.length, 60);
-        bytes.push(nickLen);
-        for (let i = 0; i < nickLen; i++) bytes.push(nickBytes[i]);
-
-        // 全部记录，按时间升序
-        const sorted = [...records].sort((a, b) => a.timestamp - b.timestamp);
-        writeVarint(bytes, sorted.length);
-
-        let prevMinutes = 0;
-        for (const r of sorted) {
-            const minFromBase = Math.floor((r.timestamp - BASE_TIME) / 60000);
-            const delta = minFromBase - prevMinutes;
-            prevMinutes = minFromBase;
-            writeVarintSigned(bytes, delta);
-            bytes.push(Math.min(255, r.minutes) & 0xFF);
-        }
-
-        return bytesToDecimalString(bytes);
-    }
-
-    // 解码：校验有效期
-    function decodeData(code) {
-        const bytes = decimalStringToBytes(code);
-        let pos = 0;
-
-        const version = bytes[pos++];
-        if (version !== 1) throw new Error('不支持的编码版本');
-
-        const flags = bytes[pos++];
-        const decodedAutoCycle = (flags & 1) === 1;
-
-        const workMinutes = bytes[pos++];
-        const restMinutes = bytes[pos++];
-        if (workMinutes < 1 || workMinutes > 180) throw new Error('工作分钟数异常');
-        if (restMinutes < 1 || restMinutes > 60) throw new Error('休息分钟数异常');
-
-        const r1 = readVarint(bytes, pos);
-        const decodedTotalMinutes = r1.value;
-        pos = r1.pos;
-
-        const r2 = readVarint(bytes, pos);
-        const exportTime = r2.value;
-        pos = r2.pos;
-
-        // 有效期检查
-        const now = Date.now();
-        if (now - exportTime > CODE_VALID_MS) {
-            throw new Error('编码已过期（超过2小时），请重新生成');
-        }
-        if (exportTime > now + 60000) {
-            throw new Error('编码时间异常');
-        }
-
-        const nickLen = bytes[pos++];
-        if (nickLen > 120) throw new Error('昵称长度异常');
-        const nickBytes = bytes.slice(pos, pos + nickLen);
-        pos += nickLen;
-        const decodedNickname = new TextDecoder().decode(new Uint8Array(nickBytes));
-
-        const r3 = readVarint(bytes, pos);
-        const recordCount = r3.value;
-        pos = r3.pos;
-        if (recordCount > 10000) throw new Error('记录数量异常');
-
-        const decodedRecords = [];
-        let prevMinutes = 0;
-        for (let i = 0; i < recordCount; i++) {
-            const r = readVarintSigned(bytes, pos);
-            pos = r.pos;
-            const delta = r.value;
-            const minFromBase = prevMinutes + delta;
-            prevMinutes = minFromBase;
-            const timestamp = BASE_TIME + minFromBase * 60000;
-            const minutes = bytes[pos++];
-            decodedRecords.push({
-                date: new Date(timestamp).toISOString(),
-                timestamp,
-                minutes
-            });
-        }
-
-        return {
-            nickname: decodedNickname,
-            totalMinutes: decodedTotalMinutes,
-            settings: { workMinutes, restMinutes },
-            autoCycle: decodedAutoCycle,
-            records: decodedRecords
-        };
-    }
-
-    function updateCodeInfo(code) {
-        const len = code ? code.length : 0;
-        if (len === 0) {
-            codeInfo.textContent = '';
-            codeInfo.className = 'code-info';
-            return;
-        }
-        codeInfo.className = 'code-info ok';
-        codeInfo.textContent = `编码长度：${len} 位 · 有效期 2 小时`;
-    }
-
-    // 导出
-    btnExportData.addEventListener('click', () => {
-        try {
-            // 同步总分钟数
-            const total = records.reduce((sum, r) => sum + (r.minutes || 0), 0);
-            saveTotalMinutes(total);
-            const code = encodeData();
-            importExportArea.value = code;
-            updateCodeInfo(code);
-            dataError.textContent = '';
-            dataSuccess.textContent = '编码已生成，有效期 2 小时，可点击复制';
-            copyToClipboard(code).then(() => {
-                dataSuccess.textContent = '编码已生成并复制到剪贴板';
-            }).catch(() => {});
-            setTimeout(() => { dataSuccess.textContent = ''; }, 3000);
-        } catch (e) {
-            dataError.textContent = '导出失败：' + e.message;
-            dataSuccess.textContent = '';
-        }
-    });
-
-    // 复制
-    btnCopyCode.addEventListener('click', () => {
-        const code = importExportArea.value.trim();
-        if (!code) {
-            dataError.textContent = '暂无编码可复制';
-            dataSuccess.textContent = '';
-            return;
-        }
-        copyToClipboard(code).then(() => {
-            dataError.textContent = '';
-            dataSuccess.textContent = '已复制到剪贴板';
-            setTimeout(() => { dataSuccess.textContent = ''; }, 2000);
-        }).catch(() => {
-            dataError.textContent = '复制失败，请手动选择复制';
-            dataSuccess.textContent = '';
-        });
-    });
-
-    // 导入
-    btnImportData.addEventListener('click', () => {
-        const code = importExportArea.value.trim();
-        if (!code) {
-            dataError.textContent = '请先粘贴导入编码';
-            dataSuccess.textContent = '';
-            return;
-        }
-        if (!/^\d+$/.test(code)) {
-            dataError.textContent = '编码格式错误，只允许数字';
-            dataSuccess.textContent = '';
-            return;
-        }
-        try {
-            const data = decodeData(code);
-            if (!confirm('导入将覆盖当前所有数据（昵称、设置、记录、等级），确定继续吗？')) {
-                return;
-            }
-
-            nickname = data.nickname || '专注者';
-            localStorage.setItem(NICKNAME_KEY, nickname);
-
-            settings = {
-                workMinutes: data.settings.workMinutes,
-                restMinutes: data.settings.restMinutes
-            };
-            saveSettings();
-            state.workMinutes = settings.workMinutes;
-            state.restMinutes = settings.restMinutes;
-
-            autoCycle = data.autoCycle;
-            saveCycle();
-
-            // 根据导入的记录重新计算总分钟数，确保准确
-            const total = data.records.reduce((sum, r) => sum + (r.minutes || 0), 0);
-            saveTotalMinutes(total);
-
-            records = data.records.map(r => ({
-                date: r.date,
-                minutes: r.minutes,
-                timestamp: r.timestamp
-            }));
-            saveRecords();
-
-            state.mode = 'work';
-            state.totalSeconds = settings.workMinutes * 60;
-            state.totalDurationMs = settings.workMinutes * 60 * 1000;
-            state.remainingSeconds = state.totalSeconds;
-            state.isRunning = false;
-            state.isPaused = false;
-            stopTimerInterval();
-
-            updateAllUI();
-            updateStatsAndRecords();
-            loadSettingsToInputs();
-            updateCodeInfo('');
-            dataError.textContent = '';
-            dataSuccess.textContent = '数据导入成功！';
-            showSuccess('数据导入成功', '历史数据已完整恢复');
-            setTimeout(() => { dataSuccess.textContent = ''; }, 3000);
-        } catch (e) {
-            dataError.textContent = '导入失败：' + e.message;
-            dataSuccess.textContent = '';
-        }
-    });
-
-    importExportArea.addEventListener('input', () => {
-        const code = importExportArea.value.trim();
-        updateCodeInfo(code);
-    });
-
-    function copyToClipboard(text) {
-        return new Promise((resolve, reject) => {
-            if (navigator.clipboard && navigator.clipboard.writeText) {
-                navigator.clipboard.writeText(text).then(resolve).catch(() => {
-                    fallbackCopy(text).then(resolve).catch(reject);
-                });
-            } else {
-                fallbackCopy(text).then(resolve).catch(reject);
-            }
-        });
-    }
-
-    function fallbackCopy(text) {
-        return new Promise((resolve, reject) => {
-            try {
-                const textarea = document.createElement('textarea');
-                textarea.value = text;
-                textarea.style.position = 'fixed';
-                textarea.style.opacity = '0';
-                document.body.appendChild(textarea);
-                textarea.select();
-                document.execCommand('copy');
-                document.body.removeChild(textarea);
-                resolve();
-            } catch (e) {
-                reject(e);
-            }
-        });
-    }
-
-    // ==================== 计时逻辑 ====================
-    function setMode(mode) {
-        state.mode = mode;
-        if (mode === 'work') {
-            state.totalSeconds = state.workMinutes * 60;
-            state.totalDurationMs = state.workMinutes * 60 * 1000;
-        } else {
-            state.totalSeconds = state.restMinutes * 60;
-            state.totalDurationMs = state.restMinutes * 60 * 1000;
-        }
-        state.remainingSeconds = state.totalSeconds;
-        state.isRunning = false;
-        state.isPaused = false;
-        stopTimerInterval();
-        updateStartButton();
-        updateDisplay();
-        updateRing();
-    }
-
-    function startTimer() {
-        if (state.isRunning) return;
-        if (state.remainingSeconds <= 0) resetTimer();
-        state.isRunning = true;
-        state.isPaused = false;
-        state.lastTickTime = Date.now();
-        state.accumulatedPauseMs = 0;
-        updateStartButton();
-        updateDisplay();
-        if (state.timerId) clearInterval(state.timerId);
-        state.timerId = setInterval(tick, 200);
-        hideCelebration();
-    }
-
-    function pauseTimer() {
-        if (!state.isRunning) return;
-        state.isRunning = false;
-        state.isPaused = true;
-        state.pauseStartTime = Date.now();
-        stopTimerInterval();
-        updateStartButton();
-        updateDisplay();
-    }
-
-    function resumeTimer() {
-        if (state.isRunning || !state.isPaused) return;
-        state.isRunning = true;
-        state.isPaused = false;
-        state.accumulatedPauseMs += Date.now() - state.pauseStartTime;
-        state.lastTickTime = Date.now();
-        updateStartButton();
-        updateDisplay();
-        if (state.timerId) clearInterval(state.timerId);
-        state.timerId = setInterval(tick, 200);
-    }
-
-    function resetTimer() {
-        stopTimerInterval();
-        state.isRunning = false;
-        state.isPaused = false;
-        setMode(state.mode);
-        hideCelebration();
-        updateStartButton();
-        updateDisplay();
-        updateRing();
-    }
-
-    function stopTimerInterval() {
-        if (state.timerId) {
-            clearInterval(state.timerId);
-            state.timerId = null;
-        }
-    }
-
-    function tick() {
-        const now = Date.now();
-        const elapsedMs = (now - state.lastTickTime) + state.accumulatedPauseMs;
-        const remainingMs = state.totalDurationMs - elapsedMs;
-        state.remainingSeconds = Math.max(0, Math.ceil(remainingMs / 1000));
-        updateDisplay();
-        updateRing();
-        if (remainingMs <= 0) {
-            state.remainingSeconds = 0;
-            completeCurrentPhase();
-        }
-    }
-
-    function completeCurrentPhase() {
-        stopTimerInterval();
-        state.isRunning = false;
-        state.isPaused = false;
-        updateStartButton();
-
-        if (state.mode === 'work') {
-            const focusMinutes = state.workMinutes;
-            records.push({
-                date: new Date().toISOString(),
-                minutes: focusMinutes,
-                timestamp: Date.now()
-            });
-            saveRecords();
-            saveTotalMinutes(totalMinutesStored + focusMinutes);
-            updateStatsAndRecords();
-            const tomatoes = getTomatoCount();
-            countValueEl.textContent = tomatoes;
-            tomatoCountEl.classList.remove('bump');
-            void tomatoCountEl.offsetWidth;
-            tomatoCountEl.classList.add('bump');
-            if (state.soundEnabled) playCompletionSound();
-
-            if (autoCycle) {
-                setMode('rest');
-                showCelebration('休息时间', '休息一下吧');
-                startTimer();
-            } else {
-                showCelebration('时间到！', '干得漂亮，休息一下吧');
-                resetTimer();
-            }
-        } else if (state.mode === 'rest') {
-            if (state.soundEnabled) playCompletionSound();
-            if (autoCycle) {
-                setMode('work');
-                showCelebration('休息结束', '开始新的专注吧');
-                startTimer();
-            } else {
-                showCelebration('休息结束', '准备下一次专注吧');
-                resetTimer();
-            }
-        }
-    }
-
-    function showCelebration(title, subText) {
-        celebrationOverlay.querySelector('.text').textContent = title;
-        celebrationSubText.textContent = subText || '';
-        celebrationOverlay.classList.add('active');
-        clearTimeout(showCelebration._t);
-        showCelebration._t = setTimeout(() => {
-            celebrationOverlay.classList.remove('active');
-        }, 3000);
-    }
-    function hideCelebration() { celebrationOverlay.classList.remove('active'); }
-
-    function showSuccess(title, msg) {
-        successOverlay.querySelector('.text').textContent = title;
-        successMessage.textContent = msg || '耶耶耶太好了';
-        successOverlay.classList.add('active');
-        if (successTimeout) clearTimeout(successTimeout);
-        successTimeout = setTimeout(() => {
-            successOverlay.classList.remove('active');
-        }, 3000);
-    }
-    function hideSuccessOverlay() {
-        successOverlay.classList.remove('active');
-        if (successTimeout) clearTimeout(successTimeout);
-    }
-    btnCloseSuccess.addEventListener('click', hideSuccessOverlay);
-
-    // 声音
-    let audioContext = null;
-    function getAudioContext() {
-        if (!audioContext) {
-            try { audioContext = new (window.AudioContext || window.webkitAudioContext)(); } catch(e) { audioContext = null; }
-        }
-        return audioContext;
-    }
-    function playCompletionSound() {
-        try {
-            const ctx = getAudioContext();
-            if (!ctx) return;
-            if (ctx.state === 'suspended') ctx.resume();
-            const notes = [
-                { freq: 523.25, time: 0, duration: 0.25 },
-                { freq: 659.25, time: 0.18, duration: 0.25 },
-                { freq: 783.99, time: 0.36, duration: 0.4 },
-            ];
-            notes.forEach(note => {
-                const osc = ctx.createOscillator();
-                const gain = ctx.createGain();
-                osc.type = 'sine';
-                osc.frequency.setValueAtTime(note.freq, ctx.currentTime + note.time);
-                gain.gain.setValueAtTime(0, ctx.currentTime + note.time);
-                gain.gain.linearRampToValueAtTime(0.3, ctx.currentTime + note.time + 0.03);
-                gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + note.time + note.duration);
-                osc.connect(gain); gain.connect(ctx.destination);
-                osc.start(ctx.currentTime + note.time);
-                osc.stop(ctx.currentTime + note.time + note.duration + 0.05);
-            });
-        } catch(e) {}
-    }
-
-    // ==================== 预设按钮 ====================
-    presetContainer.addEventListener('click', (e) => {
-        const btn = e.target.closest('.preset-btn');
-        if (!btn) return;
-        const minutes = parseInt(btn.dataset.minutes, 10);
-        state.workMinutes = minutes;
-        settings.workMinutes = minutes;
-        saveSettings();
-        if (state.mode === 'work' && !state.isRunning && !state.isPaused) {
-            state.totalSeconds = minutes * 60;
-            state.totalDurationMs = minutes * 60 * 1000;
-            state.remainingSeconds = state.totalSeconds;
-        }
-        updatePresetButtons();
-        updateDisplay();
-        updateRing();
-        workMinutesInput.value = minutes;
-    });
-
-    // ==================== 控制按钮 ====================
-    btnStart.addEventListener('click', () => {
-        if (state.isRunning) pauseTimer();
-        else if (state.isPaused) resumeTimer();
-        else startTimer();
-    });
-
-    btnReset.addEventListener('click', resetTimer);
-
-    btnSound.addEventListener('click', () => {
-        state.soundEnabled = !state.soundEnabled;
-        updateSoundButton();
-        if (state.soundEnabled) playCompletionSound();
-    });
-
-    // 键盘快捷键
-    document.addEventListener('keydown', (e) => {
-        const tag = e.target.tagName;
-        if (tag === 'INPUT' || tag === 'TEXTAREA') return;
-        if (e.code === 'Space') {
-            e.preventDefault();
-            if (state.isRunning) pauseTimer();
-            else if (state.isPaused) resumeTimer();
-            else startTimer();
-        } else if (e.code === 'KeyR') {
-            e.preventDefault();
-            resetTimer();
-        }
-    });
-
-    // ==================== 视图切换 ====================
-    function showTimerView() {
-        timerSubview.style.display = 'block';
-        statsSubview.style.display = 'none';
-        settingsSubview.style.display = 'none';
-        navBtns.forEach(btn => btn.classList.toggle('active', btn.dataset.view === 'timer'));
-    }
-    function showStatsView() {
-        timerSubview.style.display = 'none';
-        statsSubview.style.display = 'flex';
-        settingsSubview.style.display = 'none';
-        navBtns.forEach(btn => btn.classList.toggle('active', btn.dataset.view === 'stats'));
-        updateStatsAndRecords();
-    }
-    function showSettingsView() {
-        timerSubview.style.display = 'none';
-        statsSubview.style.display = 'none';
-        settingsSubview.style.display = 'flex';
-        navBtns.forEach(btn => btn.classList.toggle('active', btn.dataset.view === 'settings'));
-        loadSettingsToInputs();
-        nicknameInput.value = nickname;
-        nicknameError.textContent = '';
-        nicknameSuccess.textContent = '';
-        dataError.textContent = '';
-        dataSuccess.textContent = '';
-        updateCodeInfo(importExportArea.value.trim());
-    }
-
-    navBtns.forEach(btn => {
-        btn.addEventListener('click', () => {
-            const view = btn.dataset.view;
-            if (view === 'timer') showTimerView();
-            else if (view === 'stats') showStatsView();
-            else if (view === 'settings') showSettingsView();
-        });
-    });
-
-    // ==================== 初始化 ====================
-    function init() {
-        state.workMinutes = settings.workMinutes;
-        state.restMinutes = settings.restMinutes;
-        state.totalSeconds = settings.workMinutes * 60;
-        state.remainingSeconds = state.totalSeconds;
-        state.totalDurationMs = settings.workMinutes * 60 * 1000;
-        updateAllUI();
-        updateStatsAndRecords();
-        showTimerView();
-    }
-
-    init();
 })();
