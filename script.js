@@ -361,6 +361,8 @@ const aboutBtn   = document.getElementById('aboutBtn');
 const aboutPanel = document.getElementById('aboutPanel');
 const aboutClose = document.getElementById('aboutClose');
 
+const qqLink = document.getElementById('qqLink');
+
 /* ==========================================================
    关于面板
 ========================================================== */
@@ -375,6 +377,47 @@ aboutPanel.addEventListener('click', function (e) {
 document.addEventListener('keydown', function (e) {
   if (e.key === 'Escape') closeAbout();
 });
+
+/* ==========================================================
+   QQ 群：点击复制群号
+========================================================== */
+if (qqLink) {
+  qqLink.addEventListener('click', function () {
+    const qq = qqLink.dataset.qq;
+
+    const done = () => {
+      const old = qqLink.textContent;
+      qqLink.classList.add('copied');
+      qqLink.textContent = '已复制群号 ✓';
+      setTimeout(() => {
+        qqLink.classList.remove('copied');
+        qqLink.textContent = old;
+      }, 1400);
+    };
+
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(qq).then(done).catch(() => {
+        fallbackCopy(qq, done);
+      });
+    } else {
+      fallbackCopy(qq, done);
+    }
+  });
+}
+
+function fallbackCopy(text, cb) {
+  try {
+    const ta = document.createElement('textarea');
+    ta.value = text;
+    ta.style.position = 'fixed';
+    ta.style.opacity = '0';
+    document.body.appendChild(ta);
+    ta.select();
+    document.execCommand('copy');
+    document.body.removeChild(ta);
+    cb && cb();
+  } catch (e) {}
+}
 
 /* ==========================================================
    蓝牙心率
