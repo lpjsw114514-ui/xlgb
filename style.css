@@ -34,11 +34,74 @@ body::after{
 }
 #bpmSub{
   margin-top:9px;
+  display:flex;
+  align-items:center;
+  gap:12px;
   font-family:ui-monospace,"SF Mono",Menlo,monospace;
   font-size:10px;letter-spacing:.26em;
   color:#4a4a4a;text-transform:uppercase;
 }
 #bpmSub b{color:#c8c8c8;font-weight:500}
+
+/* ================= 信号指示灯 ================= */
+.signalIdle{
+  position:relative;
+  display:inline-flex;
+  align-items:center;
+  justify-content:center;
+  width:14px;height:14px;
+  flex:0 0 auto;
+}
+.sigDot{
+  position:absolute;
+  left:50%;top:50%;
+  width:5px;height:5px;
+  margin-left:-2.5px;margin-top:-2.5px;
+  border-radius:50%;
+  background:#fff;
+  opacity:.18;
+  transition:opacity .12s ease;
+}
+.sigRing{
+  position:absolute;
+  left:50%;top:50%;
+  width:14px;height:14px;
+  margin-left:-7px;margin-top:-7px;
+  border-radius:50%;
+  border:1px solid rgba(255,255,255,.9);
+  opacity:0;
+  transform:scale(.2);
+  pointer-events:none;
+}
+.sigRing2{
+  border-color:rgba(255,255,255,.55);
+}
+
+/* 心跳时 JS 会添加 .beat 类触发动画 */
+.signalIdle.beat .sigDot{
+  opacity:1;
+}
+.signalIdle.beat .sigRing{
+  animation:sigRing 700ms cubic-bezier(.22,1,.36,1) forwards;
+}
+.signalIdle.beat .sigRing2{
+  animation:sigRing 900ms cubic-bezier(.22,1,.36,1) 60ms forwards;
+}
+@keyframes sigRing{
+  0%{
+    opacity:.95;
+    transform:scale(.25);
+    border-width:2px;
+  }
+  60%{
+    opacity:.45;
+  }
+  100%{
+    opacity:0;
+    transform:scale(3.4);
+    border-width:.5px;
+  }
+}
 
 /* ================= 顶部按钮 ================= */
 #topBar{
