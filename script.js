@@ -39,13 +39,17 @@ window.addEventListener('orientationchange', () => setTimeout(resize, 120));
 ========================================================== */
 const settings = {
   particles:     true,
-  fullscreen:    false,
   density:       1.6,
   particleColor: '#ffffff',
   sway:          'free',
+  fullDist:      false,
+  anchor:        'rpeak',
+  customAnchor:  { x: 0.5, y: 0.5 },
+  radiusPct:     60,
   magnify:       true,
   mark:          true,
-  signal:        true
+  signal:        true,
+  sigStrength:   true
 };
 
 /* ==========================================================
@@ -53,7 +57,7 @@ const settings = {
 ========================================================== */
 const SAMPLE_MS = 5;
 const PX_PER_MS = 0.50;
-const MAX_SPARKS = 7000;
+const MAX_SPARKS = 9000;
 
 let simTime        = 0;
 let nextSampleTime = 0;
@@ -67,6 +71,13 @@ let beatInterval = 60000 / 72;
 let speed        = 0;
 let usingReal    = false;
 let realBpm      = 0;
+
+/* 信号强度 */
+let signalStrength = 0;
+let lastPacketTime = performance.now();
+
+/* 拾取模式 */
+let pickingAnchor = false;
 
 const sparks  = [];
 const ripples = [];
@@ -130,13 +141,36 @@ function pickVelocity(spd) {
 }
 
 /* ==========================================================
-   粒子池：超出上限时移除最老的
+   粒子池
 ========================================================== */
 function addSpark(p) {
   sparks.push(p);
   if (sparks.length > MAX_SPARKS) {
     sparks.splice(0, sparks.length - MAX_SPARKS);
   }
+}
+
+/* ==========================================================
+   分布中心 / 半径
+========================================================== */
+function getCloudCenter(rx, ry) {
+  /* 全屏分布：始终以屏幕中心为圆心 */
+  if (settings.fullDist) return { x: W / 2, y: H / 2 };
+
+  const a = settings.anchor;
+  if (a === 'center') return { x: W / 2, y: H / 2 };
+  if (a === 'top')    return { x: W / 2, y: H * 0.22 };
+  if (a === 'bottom') return { x: W / 2, y: H * 0.78 };
+  if (a === 'left')   return { x: W * 0.22, y: H / 2 };
+  if (a === 'right')  return { x: W * 0.78, y: H / 2 };
+  if (a === 'custom') return { x: W * settings.customAnchor.x, y: H * settings.customAnchor.y };
+  return { x: rx, y: ry };
+}
+
+function getCloudRadius() {
+  /* 全屏分布：覆盖整个屏幕（含四角） */
+  if (settings.fullDist) return Math.hypot(W, H) * 0.55;
+  return Math.min(W, H) * (settings.radiusPct / 100);
 }
 
 /* ==========================================================
@@ -163,26 +197,23 @@ function onBeat(beatTime) {
   if (settings.particles) {
     const mult = settings.density || 1.6;
 
-    /* ---------- 星空云：以 R 峰为中心，覆盖屏幕一大片 ---------- */
-    const cloudR  = settings.fullscreen
-      ? Math.hypot(W, H) * 0.5
-      : Math.min(W, H) * 0.60;
-    const cloudCX = settings.fullscreen ? W / 2 : rx;
-    const cloudCY = settings.fullscreen ? H / 2 : ry;
+    const center = getCloudCenter(rx, ry);
+    const cloudR = getCloudRadius();
 
-    const n = Math.round((320 + Math.random() * 160) * mult);
+    /* ---------- 星空云 ---------- */
+    /* 全屏时额外增加数量，让覆盖面积密度不至于太稀 */
+    const baseN = settings.fullDist ? 480 : 320;
+    const n = Math.round((baseN + Math.random() * 180) * mult);
 
     for (let i = 0; i < n; i++) {
       const ang = Math.random() * TAU;
 
-      /* 幂次分布：中心更密，边缘更稀 */
       const u = Math.random();
-      const r = cloudR * Math.pow(u, 0.55);
+      const r = cloudR * Math.pow(u, settings.fullDist ? 0.62 : 0.55);
 
-      const px = cloudCX + Math.cos(ang) * r;
-      const py = cloudCY + Math.sin(ang) * r * 0.88;
+      const px = center.x + Math.cos(ang) * r;
+      const py = center.y + Math.sin(ang) * r * 0.88;
 
-      /* 剔除屏幕外 */
       if (px < -40 || px > W + 40 || py < -40 || py > H + 40) continue;
 
       const spd = 6 + Math.random() * 44;
@@ -192,8 +223,8 @@ function onBeat(beatTime) {
         x: px, y: py,
         vx: v.vx, vy: v.vy,
         life: 1,
-        decay: 0.055 + Math.random() * 0.14,     // 存活 5–14 秒
-        size: 0.35 + Math.random() * 2.0,
+        decay: 0.055 + Math.random() * 0.14,
+        size: 1.4,
         trail: null,
         twinklePhase: Math.random() * TAU,
         twinkleSpeed: 1.2 + Math.random() * 4.5,
@@ -211,7 +242,7 @@ function onBeat(beatTime) {
         vx: v.vx, vy: v.vy,
         life: 1,
         decay: 0.35 + Math.random() * 0.4,
-        size: 2.2 + Math.random() * 2.2,
+        size: 3.0,
         trail: [rx, ry],
         maxTrail: 9,
         star: false
@@ -219,7 +250,6 @@ function onBeat(beatTime) {
     }
   }
 
-  /* 涟漪脉冲 */
   ripples.push({
     x: rx, y: ry,
     r: 4,
@@ -288,6 +318,44 @@ function update(dt) {
 
   bpmVal.textContent = Math.round(bpm);
   bpmVal.style.transform = 'scale(' + (1 + beatEnv * 0.05).toFixed(4) + ')';
+
+  /* 信号强度 */
+  if (usingReal) {
+    const sinceLast = performance.now() - lastPacketTime;
+    if (sinceLast > 3000) {
+      signalStrength -= dt * 0.05;
+    } else if (sinceLast > 1500) {
+      signalStrength -= dt * 0.015;
+    } else {
+      signalStrength += (98 - signalStrength) * (1 - Math.exp(-dt / 1500));
+    }
+  } else {
+    const tgt = 88 + Math.sin(performance.now() / 2000) * 4;
+    signalStrength += (tgt - signalStrength) * (1 - Math.exp(-dt / 800));
+  }
+  signalStrength = Math.max(0, Math.min(100, signalStrength));
+
+  updateSigStrengthUI();
+}
+
+/* ==========================================================
+   信号强度 UI
+========================================================== */
+const sigBarEls = document.querySelectorAll('#sigStrengthRow .sigBars i');
+const sigPctEl  = document.getElementById('sigPct');
+
+function updateSigStrengthUI() {
+  const v = signalStrength;
+  const pct = Math.round(v);
+
+  const level = v >= 85 ? 4 : v >= 60 ? 3 : v >= 35 ? 2 : v >= 12 ? 1 : 0;
+
+  for (let i = 0; i < sigBarEls.length; i++) {
+    if (i < level) sigBarEls[i].classList.add('on');
+    else sigBarEls[i].classList.remove('on');
+  }
+
+  sigPctEl.textContent = pct + '%';
 }
 
 /* ==========================================================
@@ -404,13 +472,44 @@ function drawMarks() {
 }
 
 /* ==========================================================
+   绘制：拾取模式十字准心
+========================================================== */
+function drawPickerCrosshair() {
+  if (!pickingAnchor) return;
+  if (!mouseX && !mouseY) return;
+
+  ctx.save();
+  ctx.strokeStyle = 'rgba(255,255,255,.55)';
+  ctx.lineWidth = 1;
+
+  ctx.beginPath();
+  ctx.moveTo(mouseX - 22, mouseY);
+  ctx.lineTo(mouseX - 6, mouseY);
+  ctx.moveTo(mouseX + 6, mouseY);
+  ctx.lineTo(mouseX + 22, mouseY);
+  ctx.moveTo(mouseX, mouseY - 22);
+  ctx.lineTo(mouseX, mouseY - 6);
+  ctx.moveTo(mouseX, mouseY + 6);
+  ctx.lineTo(mouseX, mouseY + 22);
+  ctx.stroke();
+
+  ctx.beginPath();
+  ctx.arc(mouseX, mouseY, 3, 0, TAU);
+  ctx.stroke();
+
+  ctx.restore();
+}
+
+let mouseX = 0, mouseY = 0;
+
+/* ==========================================================
    绘制：星空粒子 + 拖尾 + 涟漪
 ========================================================== */
 function drawSparks(dtSec) {
   ctx.save();
   ctx.globalCompositeOperation = 'lighter';
 
-  const damp    = Math.pow(0.30, dtSec);   // 星空粒子很快定住，集中成一块
+  const damp    = Math.pow(0.30, dtSec);
   const col     = settings.particleColor;
   const timeSec = simTime * 0.001;
 
@@ -420,25 +519,21 @@ function drawSparks(dtSec) {
     p.life -= dtSec * p.decay;
     if (p.life <= 0) { sparks.splice(i, 1); continue; }
 
-    /* 物理：缓慢漂移 + 阻尼 */
     p.x += p.vx * dtSec;
     p.y += p.vy * dtSec;
     p.vx *= damp;
     p.vy *= damp;
 
-    /* 星空粒子轻微上浮 */
     if (p.star) p.vy -= 2.5 * dtSec;
 
     const a = p.life * p.life;
 
-    /* 闪烁系数 */
     let tw = 1;
     if (p.star) {
       const s = Math.sin(p.twinklePhase + timeSec * p.twinkleSpeed);
       tw = 0.22 + 0.78 * (0.5 + 0.5 * s);
     }
 
-    /* 拖尾（只有亮核粒子带） */
     if (p.trail && p.trail.length) {
       p.trail.push(p.x, p.y);
       while (p.trail.length > p.maxTrail * 2) {
@@ -463,7 +558,6 @@ function drawSparks(dtSec) {
       }
     }
 
-    /* 粒子核心 */
     const cr = p.size * (0.5 + p.life * 0.9);
 
     ctx.globalAlpha = a * tw;
@@ -472,7 +566,6 @@ function drawSparks(dtSec) {
     ctx.arc(p.x, p.y, cr, 0, TAU);
     ctx.fill();
 
-    /* 星空粒子：稍大的加一圈柔和光晕 */
     if (p.star && p.size > 1.0) {
       ctx.globalAlpha = a * tw * 0.22;
       ctx.beginPath();
@@ -480,7 +573,6 @@ function drawSparks(dtSec) {
       ctx.fill();
     }
 
-    /* 亮核粒子：十字光芒 */
     if (!p.star && p.size > 2.2 && p.life > 0.4) {
       const L = p.size * 3.5 * p.life;
       ctx.globalAlpha = a * 0.5;
@@ -489,7 +581,6 @@ function drawSparks(dtSec) {
     }
   }
 
-  /* 涟漪 */
   for (let i = ripples.length - 1; i >= 0; i--) {
     const rp = ripples[i];
     rp.life -= dtSec * rp.decay;
@@ -610,6 +701,7 @@ function render(dtSec) {
   drawWave();
   drawMarks();
   drawSparks(dtSec);
+  drawPickerCrosshair();
   drawMagnify();
 }
 
@@ -657,15 +749,29 @@ const qqLink    = document.getElementById('qqLink');
 const showHelp  = document.getElementById('showHelp');
 const clearMarks= document.getElementById('clearMarks');
 
+const pickHintEl = document.getElementById('pickHint');
+
 /* 设置控件 */
 const setParticles  = document.getElementById('setParticles');
-const setFullscreen = document.getElementById('setFullscreen');
 const setMagnify    = document.getElementById('setMagnify');
 const setMark       = document.getElementById('setMark');
 const setSway       = document.getElementById('setSway');
 const setDensity    = document.getElementById('setDensity');
 const setSignal     = document.getElementById('setSignal');
-const colorRow      = document.getElementById('colorRow');
+const setSigStrength= document.getElementById('setSigStrength');
+const setFullDist   = document.getElementById('setFullDist');
+const setAnchor     = document.getElementById('setAnchor');
+const setRadius     = document.getElementById('setRadius');
+const pickAnchorBtn = document.getElementById('pickAnchor');
+
+const anchorRow       = document.getElementById('anchorRow');
+const customAnchorRow = document.getElementById('customAnchorRow');
+const radiusRow       = document.getElementById('radiusRow');
+const customAnchorHint= document.getElementById('customAnchorHint');
+const radiusHint      = document.getElementById('radiusHint');
+
+const colorRow       = document.getElementById('colorRow');
+const sigStrengthRow = document.getElementById('sigStrengthRow');
 
 /* ==========================================================
    模态面板控制
@@ -701,7 +807,10 @@ helpClose.addEventListener('click', function () { closeModal(helpPanel); });
 });
 
 document.addEventListener('keydown', function (e) {
-  if (e.key === 'Escape') closeAllModals();
+  if (e.key === 'Escape') {
+    if (pickingAnchor) { exitPicking(); return; }
+    closeAllModals();
+  }
 });
 
 showHelp.addEventListener('click', function () {
@@ -710,22 +819,81 @@ showHelp.addEventListener('click', function () {
 });
 
 /* ==========================================================
+   拾取自定义锚点
+========================================================== */
+function enterPicking() {
+  pickingAnchor = true;
+  document.body.classList.add('picking');
+  pickHintEl.classList.add('show');
+  closeModal(settingsPanel);
+}
+
+function exitPicking() {
+  pickingAnchor = false;
+  document.body.classList.remove('picking');
+  pickHintEl.classList.remove('show');
+}
+
+function updateCustomAnchorHint() {
+  const x = Math.round(settings.customAnchor.x * 100);
+  const y = Math.round(settings.customAnchor.y * 100);
+  customAnchorHint.textContent = '当前：' + x + '% , ' + y + '%';
+}
+
+/* ==========================================================
+   根据「全屏分布」状态更新 UI
+========================================================== */
+function updateDistUI() {
+  if (settings.fullDist) {
+    /* 全屏分布：禁用位置/半径/自定义坐标，并退出拾取 */
+    if (pickingAnchor) exitPicking();
+
+    anchorRow.classList.add('dimmed');
+    radiusRow.classList.add('dimmed');
+    customAnchorRow.classList.add('dimmed');
+
+    setAnchor.disabled = true;
+    setRadius.disabled = true;
+    pickAnchorBtn.disabled = true;
+  } else {
+    anchorRow.classList.remove('dimmed');
+    radiusRow.classList.remove('dimmed');
+    customAnchorRow.classList.remove('dimmed');
+
+    setAnchor.disabled = false;
+    setRadius.disabled = false;
+    pickAnchorBtn.disabled = false;
+
+    /* 自定义位置时显示坐标行 */
+    if (settings.anchor === 'custom') {
+      customAnchorRow.style.display = '';
+      updateCustomAnchorHint();
+    } else {
+      customAnchorRow.style.display = 'none';
+    }
+  }
+}
+
+/* ==========================================================
    设置项绑定
 ========================================================== */
-setParticles.checked  = settings.particles;
-setFullscreen.checked = settings.fullscreen;
-setMagnify.checked    = settings.magnify;
-setMark.checked       = settings.mark;
-setSignal.checked     = settings.signal;
-setSway.value         = settings.sway;
-setDensity.value      = String(settings.density);
+setParticles.checked   = settings.particles;
+setMagnify.checked     = settings.magnify;
+setMark.checked        = settings.mark;
+setSignal.checked      = settings.signal;
+setSigStrength.checked = settings.sigStrength;
+setFullDist.checked    = settings.fullDist;
+setSway.value          = settings.sway;
+setDensity.value       = String(settings.density);
+setAnchor.value        = settings.anchor;
+setRadius.value        = String(settings.radiusPct);
+
+radiusHint.textContent = '屏幕短边的 ' + settings.radiusPct + '%';
+updateCustomAnchorHint();
+updateDistUI();
 
 setParticles.addEventListener('change', function () {
   settings.particles = setParticles.checked;
-});
-
-setFullscreen.addEventListener('change', function () {
-  settings.fullscreen = setFullscreen.checked;
 });
 
 setMagnify.addEventListener('change', function () {
@@ -740,12 +908,47 @@ setSignal.addEventListener('change', function () {
   settings.signal = setSignal.checked;
 });
 
+setSigStrength.addEventListener('change', function () {
+  settings.sigStrength = setSigStrength.checked;
+  if (settings.sigStrength) sigStrengthRow.classList.remove('hide');
+  else sigStrengthRow.classList.add('hide');
+});
+
+setFullDist.addEventListener('change', function () {
+  settings.fullDist = setFullDist.checked;
+  updateDistUI();
+});
+
 setSway.addEventListener('change', function () {
   settings.sway = setSway.value;
 });
 
 setDensity.addEventListener('change', function () {
   settings.density = parseFloat(setDensity.value) || 1.6;
+});
+
+setAnchor.addEventListener('change', function () {
+  settings.anchor = setAnchor.value;
+
+  if (settings.anchor === 'custom') {
+    customAnchorRow.style.display = '';
+    updateCustomAnchorHint();
+    enterPicking();
+  } else {
+    customAnchorRow.style.display = 'none';
+  }
+});
+
+setRadius.addEventListener('input', function () {
+  settings.radiusPct = parseInt(setRadius.value, 10) || 60;
+  radiusHint.textContent = '屏幕短边的 ' + settings.radiusPct + '%';
+});
+
+pickAnchorBtn.addEventListener('click', function () {
+  settings.anchor = 'custom';
+  setAnchor.value = 'custom';
+  customAnchorRow.style.display = '';
+  enterPicking();
 });
 
 colorRow.addEventListener('click', function (e) {
@@ -805,13 +1008,30 @@ if (qqLink) {
 }
 
 /* ==========================================================
-   Canvas 点击：添加运动节点标记
+   Canvas 事件
 ========================================================== */
-canvas.addEventListener('click', function (e) {
-  if (!settings.mark) return;
+canvas.addEventListener('mousemove', function (e) {
+  mouseX = e.clientX;
+  mouseY = e.clientY;
+});
 
+canvas.addEventListener('click', function (e) {
   const x = e.clientX;
   const y = e.clientY;
+
+  /* 拾取自定义锚点 */
+  if (pickingAnchor) {
+    settings.customAnchor = {
+      x: x / W,
+      y: y / H
+    };
+    updateCustomAnchorHint();
+    exitPicking();
+    return;
+  }
+
+  /* 手动打点 */
+  if (!settings.mark) return;
 
   if (y < baseY - A * 1.7 || y > baseY + A * 1.7) return;
 
@@ -846,6 +1066,9 @@ function parseHR(event) {
   if (hr >= 25 && hr <= 230) {
     realBpm   = hr;
     usingReal = true;
+
+    lastPacketTime = performance.now();
+    signalStrength = Math.min(100, signalStrength + 12);
   }
 }
 
@@ -875,6 +1098,8 @@ async function connect() {
 
     usingReal = true;
     speedEl.disabled = true;
+
+    lastPacketTime = performance.now();
 
     btnConn.textContent = '断开连接';
     btnConn.dataset.on  = '1';
