@@ -112,7 +112,7 @@ npx serve
 
 只要设备支持标准 BLE 心率服务（`0x180D`）即可连接。部分手表/手环需先在设备端开启「心率广播」或「心率推送」功能，浏览器才能搜索到。
 
-| 品牌 | 示例设备 |
+| 品牌 | 示例设备 |（更新版应该也可以）
 |---|---|
 | 华为 HUAWEI | WATCH GT 2/3/4/5、WATCH 4/4 Pro/5、WATCH Ultimate、WATCH FIT 2/3/4、手环 4–10 |
 | Polar | H10、H9、OH1、Verity Sense |
@@ -178,7 +178,7 @@ const SPARK_SPRITES = [
 ];
 ```
 
-### 兼容非标准设备
+### 兼容非标准设备（可能也不兼容）
 
 若设备未广播标准心率服务，可将 `requestDevice` 改为：
 
@@ -203,11 +203,11 @@ A：部分设备需要先在设备端启动一次心率测量，广播才会持�
 A：不能。Web Bluetooth API 目前仅 Chromium 内核浏览器支持。
 
 **Q：可以跑在手机上吗？**
-A：可以。Android 版 Chrome 支持 Web Bluetooth；iOS 由于浏览器限制暂不支持。
+A：可以。Android 版 Chrome 支持 Web Bluetooth；iOS 由于浏览器限制暂不支持；鸿蒙原生浏览器由于兼容性问题暂不支持。
 
 ---
 
-## 许可证
+## 许可证（别点，是棍母）
 
 [MIT](LICENSE)
 
