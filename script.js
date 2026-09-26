@@ -53,6 +53,7 @@ const settings = {
 ========================================================== */
 const SAMPLE_MS = 5;
 const PX_PER_MS = 0.50;
+const MAX_SPARKS = 7000;
 
 let simTime        = 0;
 let nextSampleTime = 0;
@@ -129,6 +130,16 @@ function pickVelocity(spd) {
 }
 
 /* ==========================================================
+   粒子池：超出上限时移除最老的
+========================================================== */
+function addSpark(p) {
+  sparks.push(p);
+  if (sparks.length > MAX_SPARKS) {
+    sparks.splice(0, sparks.length - MAX_SPARKS);
+  }
+}
+
+/* ==========================================================
    信号灯脉冲
 ========================================================== */
 const signalEl = document.getElementById('signal');
@@ -141,76 +152,74 @@ function signalPulse() {
 }
 
 /* ==========================================================
-   心跳 → 粒子迸发
+   心跳 → 星空粒子迸发
 ========================================================== */
 function onBeat(beatTime) {
   const rx = W - (simTime - beatTime) * PX_PER_MS;
   const ry = baseY - A * 0.95;
 
-  /* 信号灯脉冲 */
   signalPulse();
 
   if (settings.particles) {
     const mult = settings.density || 1.6;
 
-    /* 主迸发：数量 × 强度倍数 */
-    const n = Math.round((140 + Math.random() * 60) * mult);
+    /* ---------- 星空云：以 R 峰为中心，覆盖屏幕一大片 ---------- */
+    const cloudR  = settings.fullscreen
+      ? Math.hypot(W, H) * 0.5
+      : Math.min(W, H) * 0.60;
+    const cloudCX = settings.fullscreen ? W / 2 : rx;
+    const cloudCY = settings.fullscreen ? H / 2 : ry;
+
+    const n = Math.round((320 + Math.random() * 160) * mult);
+
     for (let i = 0; i < n; i++) {
-      const spd = 30 + Math.random() * 320;
-      const v = pickVelocity(spd);
-      sparks.push({
-        x: rx, y: ry,
+      const ang = Math.random() * TAU;
+
+      /* 幂次分布：中心更密，边缘更稀 */
+      const u = Math.random();
+      const r = cloudR * Math.pow(u, 0.55);
+
+      const px = cloudCX + Math.cos(ang) * r;
+      const py = cloudCY + Math.sin(ang) * r * 0.88;
+
+      /* 剔除屏幕外 */
+      if (px < -40 || px > W + 40 || py < -40 || py > H + 40) continue;
+
+      const spd = 6 + Math.random() * 44;
+      const v   = pickVelocity(spd);
+
+      addSpark({
+        x: px, y: py,
         vx: v.vx, vy: v.vy,
         life: 1,
-        decay: 0.55 + Math.random() * 0.95,
-        size: 0.7 + Math.random() * 2.2,
-        trail: [rx, ry],
-        maxTrail: 5 + (Math.random() * 9 | 0)
+        decay: 0.055 + Math.random() * 0.14,     // 存活 5–14 秒
+        size: 0.35 + Math.random() * 2.0,
+        trail: null,
+        twinklePhase: Math.random() * TAU,
+        twinkleSpeed: 1.2 + Math.random() * 4.5,
+        star: true
       });
     }
 
-    /* 亮核：数量 × 强度倍数 */
+    /* ---------- 少量亮核：从 R 峰飞散的拖尾粒子 ---------- */
     const nc = Math.round(18 * mult);
     for (let i = 0; i < nc; i++) {
-      const spd = 20 + Math.random() * 90;
-      const v = pickVelocity(spd);
-      sparks.push({
+      const spd = 25 + Math.random() * 120;
+      const v   = pickVelocity(spd);
+      addSpark({
         x: rx, y: ry,
         vx: v.vx, vy: v.vy,
         life: 1,
-        decay: 0.35 + Math.random() * 0.35,
-        size: 2.6 + Math.random() * 2.2,
+        decay: 0.35 + Math.random() * 0.4,
+        size: 2.2 + Math.random() * 2.2,
         trail: [rx, ry],
-        maxTrail: 12
+        maxTrail: 9,
+        star: false
       });
-    }
-
-    /* 全屏粒子：屏幕各处随机爆发 */
-    if (settings.fullscreen) {
-      const groups = Math.round(16 * mult);
-      for (let g = 0; g < groups; g++) {
-        const gx = Math.random() * W;
-        const gy = Math.random() * H * 0.82;
-        const cnt = Math.round((5 + Math.random() * 6) * mult);
-
-        for (let i = 0; i < cnt; i++) {
-          const spd = 20 + Math.random() * 200;
-          const v = pickVelocity(spd);
-          sparks.push({
-            x: gx, y: gy,
-            vx: v.vx, vy: v.vy,
-            life: 1,
-            decay: 0.5 + Math.random() * 0.9,
-            size: 0.6 + Math.random() * 1.7,
-            trail: [gx, gy],
-            maxTrail: 4 + (Math.random() * 7 | 0)
-          });
-        }
-      }
     }
   }
 
-  /* 涟漪 */
+  /* 涟漪脉冲 */
   ripples.push({
     x: rx, y: ry,
     r: 4,
@@ -395,15 +404,15 @@ function drawMarks() {
 }
 
 /* ==========================================================
-   绘制：粒子 + 拖尾 + 涟漪
+   绘制：星空粒子 + 拖尾 + 涟漪
 ========================================================== */
 function drawSparks(dtSec) {
   ctx.save();
   ctx.globalCompositeOperation = 'lighter';
 
-  const damp    = Math.pow(0.14, dtSec);
-  const gravity = 55;
+  const damp    = Math.pow(0.30, dtSec);   // 星空粒子很快定住，集中成一块
   const col     = settings.particleColor;
+  const timeSec = simTime * 0.001;
 
   for (let i = sparks.length - 1; i >= 0; i--) {
     const p = sparks[i];
@@ -411,47 +420,68 @@ function drawSparks(dtSec) {
     p.life -= dtSec * p.decay;
     if (p.life <= 0) { sparks.splice(i, 1); continue; }
 
-    p.trail.push(p.x, p.y);
-    while (p.trail.length > p.maxTrail * 2) {
-      p.trail.shift();
-      p.trail.shift();
-    }
-
-    p.vy += gravity * dtSec;
-    p.x  += p.vx * dtSec;
-    p.y  += p.vy * dtSec;
+    /* 物理：缓慢漂移 + 阻尼 */
+    p.x += p.vx * dtSec;
+    p.y += p.vy * dtSec;
     p.vx *= damp;
     p.vy *= damp;
 
+    /* 星空粒子轻微上浮 */
+    if (p.star) p.vy -= 2.5 * dtSec;
+
     const a = p.life * p.life;
 
-    /* 拖尾 */
-    const tn = p.trail.length / 2;
-    for (let j = 0; j < tn; j++) {
-      const k  = j / tn;
-      const ta = a * k * k * 0.45;
-      if (ta < 0.01) continue;
-
-      const tr = p.size * k * 0.85;
-      if (tr < 0.2) continue;
-
-      ctx.globalAlpha = ta;
-      ctx.fillStyle = col;
-      ctx.beginPath();
-      ctx.arc(p.trail[j * 2], p.trail[j * 2 + 1], tr, 0, TAU);
-      ctx.fill();
+    /* 闪烁系数 */
+    let tw = 1;
+    if (p.star) {
+      const s = Math.sin(p.twinklePhase + timeSec * p.twinkleSpeed);
+      tw = 0.22 + 0.78 * (0.5 + 0.5 * s);
     }
 
-    /* 核心 */
+    /* 拖尾（只有亮核粒子带） */
+    if (p.trail && p.trail.length) {
+      p.trail.push(p.x, p.y);
+      while (p.trail.length > p.maxTrail * 2) {
+        p.trail.shift();
+        p.trail.shift();
+      }
+
+      const tn = p.trail.length / 2;
+      for (let j = 0; j < tn; j++) {
+        const k  = j / tn;
+        const ta = a * k * k * 0.45;
+        if (ta < 0.01) continue;
+
+        const tr = p.size * k * 0.85;
+        if (tr < 0.2) continue;
+
+        ctx.globalAlpha = ta;
+        ctx.fillStyle = col;
+        ctx.beginPath();
+        ctx.arc(p.trail[j * 2], p.trail[j * 2 + 1], tr, 0, TAU);
+        ctx.fill();
+      }
+    }
+
+    /* 粒子核心 */
     const cr = p.size * (0.5 + p.life * 0.9);
-    ctx.globalAlpha = a;
+
+    ctx.globalAlpha = a * tw;
     ctx.fillStyle = col;
     ctx.beginPath();
     ctx.arc(p.x, p.y, cr, 0, TAU);
     ctx.fill();
 
-    /* 大粒子十字光芒 */
-    if (p.size > 2.2 && p.life > 0.4) {
+    /* 星空粒子：稍大的加一圈柔和光晕 */
+    if (p.star && p.size > 1.0) {
+      ctx.globalAlpha = a * tw * 0.22;
+      ctx.beginPath();
+      ctx.arc(p.x, p.y, cr * 3.2, 0, TAU);
+      ctx.fill();
+    }
+
+    /* 亮核粒子：十字光芒 */
+    if (!p.star && p.size > 2.2 && p.life > 0.4) {
       const L = p.size * 3.5 * p.life;
       ctx.globalAlpha = a * 0.5;
       ctx.fillRect(p.x - L, p.y - 0.5, L * 2, 1);
