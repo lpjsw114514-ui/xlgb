@@ -43,7 +43,7 @@
       <p>
         本站通过浏览器 <b>Web Bluetooth</b> 直连支持标准 BLE 心率服务
         （<b>0x180D</b>）的设备，实时绘制滚动心电图。每次心搏都会在 R 峰位置
-        迸发一簇粒子，并点亮信号指示灯。
+        迸发一大片星空粒子，并点亮信号指示灯。
         <br><br>
         未连接设备时自动进入<b>模拟模式</b>，拖动底部的速度滑块可改变运动强度，
         心率会随强度平滑上升并带轻微波动，适合演示与调试。
@@ -195,7 +195,7 @@
       <div class="settingRow">
         <div class="settingLabel">
           <span class="settingName">启用粒子</span>
-          <span class="settingHint">心跳时迸发粒子</span>
+          <span class="settingHint">心跳时迸发星空粒子</span>
         </div>
         <label class="switch">
           <input type="checkbox" id="setParticles" checked>
@@ -205,8 +205,8 @@
 
       <div class="settingRow">
         <div class="settingLabel">
-          <span class="settingName">全屏粒子</span>
-          <span class="settingHint">粒子铺满整个屏幕</span>
+          <span class="settingName">全屏星空</span>
+          <span class="settingHint">粒子云覆盖整个屏幕</span>
         </div>
         <label class="switch">
           <input type="checkbox" id="setFullscreen">
@@ -323,7 +323,7 @@
       <p>
         1. 用 <b>Chrome</b> 或 <b>Edge</b> 打开页面（HTTPS 或 localhost）<br>
         2. 点击底部「连接心率设备」，选择你的设备<br>
-        3. 连接成功后，心电图会实时显示心率，每次心搏触发粒子迸发与信号灯闪烁<br>
+        3. 连接成功后，心电图会实时显示心率，每次心搏触发星空粒子与信号灯闪烁<br>
         4. 未连接设备时，拖动「速度」滑块即可模拟 68–180 BPM
       </p>
     </div>
@@ -331,9 +331,9 @@
     <div class="modalSection">
       <h3>粒子效果</h3>
       <p>
-        <b>启用粒子</b>：控制心跳时是否迸发粒子。<br>
-        <b>全屏粒子</b>：开启后，粒子会铺满整个屏幕，不再只集中在 R 峰。<br>
-        <b>粒子强度</b>：控制粒子的基础数量倍数（标准 / 丰富 / 爆炸 / 狂野）。<br>
+        <b>启用粒子</b>：控制心跳时是否迸发星空粒子。<br>
+        <b>全屏星空</b>：开启后，粒子云以屏幕中心为圆心覆盖整个屏幕；关闭时，粒子云以 R 峰为中心，覆盖屏幕中部一大片区域。<br>
+        <b>粒子强度</b>：控制每次心跳生成的粒子数量（标准 / 丰富 / 爆炸 / 狂野）。<br>
         <b>粒子颜色</b>：点击色块切换粒子颜色。<br>
         <b>摆动方向</b>：控制粒子的初速度方向。自由扩散是四散；向上/下/左/右是定向；顺时针/逆时针带切向旋转。
       </p>
