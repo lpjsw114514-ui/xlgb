@@ -35,6 +35,18 @@ window.addEventListener('resize', resize);
 window.addEventListener('orientationchange', () => setTimeout(resize, 120));
 
 /* ==========================================================
+   设置
+========================================================== */
+const settings = {
+  particles:     true,
+  fullscreen:    false,
+  particleColor: '#ffffff',
+  sway:          'free',
+  magnify:       true,
+  mark:          true
+};
+
+/* ==========================================================
    状态
 ========================================================== */
 const SAMPLE_MS = 5;
@@ -55,6 +67,7 @@ let realBpm      = 0;
 
 const sparks  = [];
 const ripples = [];
+const marks   = [];
 
 /* ==========================================================
    心电波形
@@ -70,50 +83,115 @@ function ecgAt(t) {
 }
 
 /* ==========================================================
+   摆动方向 → 速度向量
+========================================================== */
+function pickVelocity(spd) {
+  const s = settings.sway;
+  let ang, vx, vy, cos, sin;
+
+  if (s === 'up') {
+    ang = -Math.PI / 2 + (Math.random() - 0.5) * Math.PI * 0.75;
+    vx = Math.cos(ang) * spd;
+    vy = Math.sin(ang) * spd;
+  } else if (s === 'down') {
+    ang = Math.PI / 2 + (Math.random() - 0.5) * Math.PI * 0.75;
+    vx = Math.cos(ang) * spd;
+    vy = Math.sin(ang) * spd;
+  } else if (s === 'left') {
+    ang = Math.PI + (Math.random() - 0.5) * Math.PI * 0.75;
+    vx = Math.cos(ang) * spd;
+    vy = Math.sin(ang) * spd;
+  } else if (s === 'right') {
+    ang = (Math.random() - 0.5) * Math.PI * 0.75;
+    vx = Math.cos(ang) * spd;
+    vy = Math.sin(ang) * spd;
+  } else if (s === 'cw') {
+    ang = Math.random() * TAU;
+    cos = Math.cos(ang);
+    sin = Math.sin(ang);
+    vx = (cos * 0.72 + sin * 0.55) * spd;
+    vy = (sin * 0.72 - cos * 0.55) * spd;
+  } else if (s === 'ccw') {
+    ang = Math.random() * TAU;
+    cos = Math.cos(ang);
+    sin = Math.sin(ang);
+    vx = (cos * 0.72 - sin * 0.55) * spd;
+    vy = (sin * 0.72 + cos * 0.55) * spd;
+  } else {
+    ang = Math.random() * TAU;
+    vx = Math.cos(ang) * spd;
+    vy = Math.sin(ang) * spd;
+  }
+
+  return { vx: vx, vy: vy };
+}
+
+/* ==========================================================
    心跳 → 粒子迸发
 ========================================================== */
 function onBeat(beatTime) {
-  const x = W - (simTime - beatTime) * PX_PER_MS;
-  const y = baseY - A * 0.95;
+  const rx = W - (simTime - beatTime) * PX_PER_MS;
+  const ry = baseY - A * 0.95;
 
-  /* 主迸发：数量多、体积小、速度散 */
-  const n = 48 + (Math.random() * 20 | 0);
+  if (settings.particles) {
+    /* 主迸发 */
+    const n = 48 + (Math.random() * 20 | 0);
+    for (let i = 0; i < n; i++) {
+      const spd = 30 + Math.random() * 260;
+      const v = pickVelocity(spd);
+      sparks.push({
+        x: rx, y: ry,
+        vx: v.vx, vy: v.vy,
+        life: 1,
+        decay: 0.55 + Math.random() * 0.95,
+        size: 0.7 + Math.random() * 1.9,
+        trail: [rx, ry],
+        maxTrail: 5 + (Math.random() * 7 | 0)
+      });
+    }
 
-  for (let i = 0; i < n; i++) {
-    const ang = Math.random() * TAU;
-    const spd = 30 + Math.random() * 260;
+    /* 亮核 */
+    for (let i = 0; i < 6; i++) {
+      const spd = 20 + Math.random() * 70;
+      const v = pickVelocity(spd);
+      sparks.push({
+        x: rx, y: ry,
+        vx: v.vx, vy: v.vy,
+        life: 1,
+        decay: 0.35 + Math.random() * 0.35,
+        size: 2.6 + Math.random() * 1.8,
+        trail: [rx, ry],
+        maxTrail: 10
+      });
+    }
 
-    sparks.push({
-      x, y,
-      vx: Math.cos(ang) * spd,
-      vy: Math.sin(ang) * spd,
-      life: 1,
-      decay: 0.55 + Math.random() * 0.95,
-      size: 0.7 + Math.random() * 1.9,
-      trail: [x, y],
-      maxTrail: 5 + (Math.random() * 7 | 0)
-    });
+    /* 全屏粒子：屏幕各处随机爆发 */
+    if (settings.fullscreen) {
+      for (let g = 0; g < 10; g++) {
+        const gx = Math.random() * W;
+        const gy = Math.random() * H * 0.82;
+        const cnt = 4 + (Math.random() * 5 | 0);
+
+        for (let i = 0; i < cnt; i++) {
+          const spd = 20 + Math.random() * 160;
+          const v = pickVelocity(spd);
+          sparks.push({
+            x: gx, y: gy,
+            vx: v.vx, vy: v.vy,
+            life: 1,
+            decay: 0.5 + Math.random() * 0.9,
+            size: 0.6 + Math.random() * 1.5,
+            trail: [gx, gy],
+            maxTrail: 4 + (Math.random() * 6 | 0)
+          });
+        }
+      }
+    }
   }
 
-  /* 少量「亮核」粒子：更大更亮，撑住视觉重心 */
-  for (let i = 0; i < 6; i++) {
-    const ang = Math.random() * TAU;
-    const spd = 20 + Math.random() * 70;
-    sparks.push({
-      x, y,
-      vx: Math.cos(ang) * spd,
-      vy: Math.sin(ang) * spd,
-      life: 1,
-      decay: 0.35 + Math.random() * 0.35,
-      size: 2.6 + Math.random() * 1.8,
-      trail: [x, y],
-      maxTrail: 10
-    });
-  }
-
-  /* 涟漪脉冲 */
+  /* 涟漪 */
   ripples.push({
-    x, y,
+    x: rx, y: ry,
     r: 4,
     maxR: 100 + Math.random() * 70,
     life: 1,
@@ -167,6 +245,11 @@ function update(dt) {
   const maxAge = (W + 260) / PX_PER_MS;
   while (samples.length && (simTime - samples[0].t) > maxAge) {
     samples.shift();
+  }
+
+  const markAge = (W + 400) / PX_PER_MS;
+  for (let i = marks.length - 1; i >= 0; i--) {
+    if (simTime - marks[i].t > markAge) marks.splice(i, 1);
   }
 
   let d = phase - R;
@@ -254,14 +337,55 @@ function drawWave() {
 }
 
 /* ==========================================================
+   绘制：打点标记
+========================================================== */
+function drawMarks() {
+  if (marks.length === 0) return;
+
+  ctx.save();
+  for (let i = 0; i < marks.length; i++) {
+    const m = marks[i];
+    const x = W - (simTime - m.t) * PX_PER_MS;
+    if (x < -30 || x > W + 30) continue;
+
+    const topY = baseY - A * 1.2;
+    const botY = baseY + A * 0.8;
+
+    /* 竖线 */
+    ctx.strokeStyle = 'rgba(255,255,255,.28)';
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.moveTo(x, topY);
+    ctx.lineTo(x, botY);
+    ctx.stroke();
+
+    /* 光晕 */
+    ctx.globalAlpha = 0.28;
+    ctx.fillStyle = '#fff';
+    ctx.beginPath();
+    ctx.arc(x, topY, 8, 0, TAU);
+    ctx.fill();
+    ctx.globalAlpha = 1;
+
+    /* 圆点 */
+    ctx.fillStyle = '#fff';
+    ctx.beginPath();
+    ctx.arc(x, topY, 3.5, 0, TAU);
+    ctx.fill();
+  }
+  ctx.restore();
+}
+
+/* ==========================================================
    绘制：粒子 + 拖尾 + 涟漪
 ========================================================== */
 function drawSparks(dtSec) {
   ctx.save();
   ctx.globalCompositeOperation = 'lighter';
 
-  const damp    = Math.pow(0.14, dtSec);  // 每秒速度衰减到 14%
-  const gravity = 55;                     // 重力 px/s²
+  const damp    = Math.pow(0.14, dtSec);
+  const gravity = 55;
+  const col     = settings.particleColor;
 
   for (let i = sparks.length - 1; i >= 0; i--) {
     const p = sparks[i];
@@ -269,14 +393,12 @@ function drawSparks(dtSec) {
     p.life -= dtSec * p.decay;
     if (p.life <= 0) { sparks.splice(i, 1); continue; }
 
-    /* 记录位置到拖尾 */
     p.trail.push(p.x, p.y);
     while (p.trail.length > p.maxTrail * 2) {
       p.trail.shift();
       p.trail.shift();
     }
 
-    /* 物理 */
     p.vy += gravity * dtSec;
     p.x  += p.vx * dtSec;
     p.y  += p.vy * dtSec;
@@ -285,10 +407,10 @@ function drawSparks(dtSec) {
 
     const a = p.life * p.life;
 
-    /* --- 拖尾：从旧到新画，越旧越暗越细 --- */
+    /* 拖尾 */
     const tn = p.trail.length / 2;
     for (let j = 0; j < tn; j++) {
-      const k  = j / tn;                 // 0 = 最旧, 1 = 最新
+      const k  = j / tn;
       const ta = a * k * k * 0.45;
       if (ta < 0.01) continue;
 
@@ -296,21 +418,21 @@ function drawSparks(dtSec) {
       if (tr < 0.2) continue;
 
       ctx.globalAlpha = ta;
-      ctx.fillStyle = '#fff';
+      ctx.fillStyle = col;
       ctx.beginPath();
       ctx.arc(p.trail[j * 2], p.trail[j * 2 + 1], tr, 0, TAU);
       ctx.fill();
     }
 
-    /* --- 粒子核心 --- */
+    /* 核心 */
     const cr = p.size * (0.5 + p.life * 0.9);
     ctx.globalAlpha = a;
-    ctx.fillStyle = '#fff';
+    ctx.fillStyle = col;
     ctx.beginPath();
     ctx.arc(p.x, p.y, cr, 0, TAU);
     ctx.fill();
 
-    /* --- 大粒子加十字光芒 --- */
+    /* 大粒子十字光芒 */
     if (p.size > 2.2 && p.life > 0.4) {
       const L = p.size * 3.5 * p.life;
       ctx.globalAlpha = a * 0.5;
@@ -319,7 +441,7 @@ function drawSparks(dtSec) {
     }
   }
 
-  /* --- 涟漪 --- */
+  /* 涟漪 */
   for (let i = ripples.length - 1; i >= 0; i--) {
     const rp = ripples[i];
     rp.life -= dtSec * rp.decay;
@@ -330,7 +452,7 @@ function drawSparks(dtSec) {
     const r    = rp.r + (rp.maxR - rp.r) * ease;
 
     ctx.globalAlpha = rp.life * rp.life * 0.5;
-    ctx.strokeStyle = '#fff';
+    ctx.strokeStyle = col;
     ctx.lineWidth   = 1.5 * rp.life + 0.2;
     ctx.beginPath();
     ctx.arc(rp.x, rp.y, r, 0, TAU);
@@ -342,6 +464,98 @@ function drawSparks(dtSec) {
 }
 
 /* ==========================================================
+   绘制：局部放大窗口
+========================================================== */
+function roundRect(c, x, y, w, h, r) {
+  c.beginPath();
+  c.moveTo(x + r, y);
+  c.arcTo(x + w, y, x + w, y + h, r);
+  c.arcTo(x + w, y + h, x, y + h, r);
+  c.arcTo(x, y + h, x, y, r);
+  c.arcTo(x, y, x + w, y, r);
+  c.closePath();
+}
+
+function drawMagnify() {
+  if (!settings.magnify) return;
+  if (samples.length < 10) return;
+
+  const boxW = Math.min(260, W * 0.36);
+  const boxH = boxW * 0.62;
+  const bx = W - boxW - 20;
+  const by = H - boxH - 140;
+
+  /* 找最近一个心跳周期的采样 */
+  const startT = simTime - beatInterval * 0.98;
+  const seg = [];
+  for (let i = samples.length - 1; i >= 0; i--) {
+    const s = samples[i];
+    if (s.t < startT) break;
+    seg.unshift(s);
+  }
+  if (seg.length < 4) return;
+
+  ctx.save();
+
+  /* 背景 */
+  ctx.fillStyle = 'rgba(0,0,0,.58)';
+  ctx.strokeStyle = 'rgba(255,255,255,.18)';
+  ctx.lineWidth = 1;
+  roundRect(ctx, bx, by, boxW, boxH, 10);
+  ctx.fill();
+  ctx.stroke();
+
+  /* 标题 */
+  ctx.fillStyle = 'rgba(255,255,255,.45)';
+  ctx.font = '10px ui-monospace, "SF Mono", Menlo, monospace';
+  ctx.textBaseline = 'top';
+  ctx.fillText('ECG · 局部放大', bx + 11, by + 9);
+
+  /* 缩放参数 */
+  const padX = 10;
+  const padY = 26;
+  const innerW = boxW - padX * 2;
+  const innerH = boxH - padY - 8;
+  const midY = by + padY + innerH / 2;
+
+  const tStart = seg[0].t;
+  const tEnd   = seg[seg.length - 1].t;
+  const tSpan  = (tEnd - tStart) || 1;
+
+  const scaleX = innerW / tSpan;
+  const scaleY = innerH * 0.40;
+
+  const path = new Path2D();
+  for (let i = 0; i < seg.length; i++) {
+    const s = seg[i];
+    const px = bx + padX + (s.t - tStart) * scaleX;
+    const py = midY - s.v * scaleY;
+    if (i === 0) path.moveTo(px, py);
+    else path.lineTo(px, py);
+  }
+
+  ctx.lineCap  = 'round';
+  ctx.lineJoin = 'round';
+  ctx.strokeStyle = '#fff';
+
+  const layers = [
+    { w: 9,  a: 0.05 },
+    { w: 4.5,a: 0.15 },
+    { w: 2.2,a: 0.45 },
+    { w: 1,  a: 1.00 }
+  ];
+
+  for (let i = 0; i < layers.length; i++) {
+    ctx.globalAlpha = layers[i].a;
+    ctx.lineWidth   = layers[i].w;
+    ctx.stroke(path);
+  }
+
+  ctx.globalAlpha = 1;
+  ctx.restore();
+}
+
+/* ==========================================================
    渲染
 ========================================================== */
 function render(dtSec) {
@@ -350,7 +564,9 @@ function render(dtSec) {
 
   drawGrid();
   drawWave();
+  drawMarks();
   drawSparks(dtSec);
+  drawMagnify();
 }
 
 /* ==========================================================
@@ -382,46 +598,151 @@ const speedVal = document.getElementById('speedVal');
 const bpmVal   = document.getElementById('bpmVal');
 const srcTag   = document.getElementById('srcTag');
 
-const aboutBtn   = document.getElementById('aboutBtn');
-const aboutPanel = document.getElementById('aboutPanel');
-const aboutClose = document.getElementById('aboutClose');
+const aboutBtn     = document.getElementById('aboutBtn');
+const settingsBtn  = document.getElementById('settingsBtn');
 
-const qqLink = document.getElementById('qqLink');
+const aboutPanel    = document.getElementById('aboutPanel');
+const settingsPanel = document.getElementById('settingsPanel');
+const helpPanel     = document.getElementById('helpPanel');
+
+const aboutClose    = document.getElementById('aboutClose');
+const settingsClose = document.getElementById('settingsClose');
+const helpClose     = document.getElementById('helpClose');
+
+const qqLink    = document.getElementById('qqLink');
+const showHelp  = document.getElementById('showHelp');
+const clearMarks= document.getElementById('clearMarks');
+
+/* 设置控件 */
+const setParticles  = document.getElementById('setParticles');
+const setFullscreen = document.getElementById('setFullscreen');
+const setMagnify    = document.getElementById('setMagnify');
+const setMark       = document.getElementById('setMark');
+const setSway       = document.getElementById('setSway');
+const colorRow      = document.getElementById('colorRow');
 
 /* ==========================================================
-   关于面板
+   模态面板控制
 ========================================================== */
-function openAbout()  { aboutPanel.classList.add('show'); }
-function closeAbout() { aboutPanel.classList.remove('show'); }
+function openModal(el)  { el.classList.add('show'); }
+function closeModal(el) { el.classList.remove('show'); }
+function closeAllModals() {
+  closeModal(aboutPanel);
+  closeModal(settingsPanel);
+  closeModal(helpPanel);
+}
 
-aboutBtn.addEventListener('click', openAbout);
-aboutClose.addEventListener('click', closeAbout);
-aboutPanel.addEventListener('click', function (e) {
-  if (e.target === aboutPanel) closeAbout();
+aboutBtn.addEventListener('click', function () {
+  closeModal(settingsPanel);
+  closeModal(helpPanel);
+  openModal(aboutPanel);
 });
+
+settingsBtn.addEventListener('click', function () {
+  closeModal(aboutPanel);
+  closeModal(helpPanel);
+  openModal(settingsPanel);
+});
+
+aboutClose.addEventListener('click', function () { closeModal(aboutPanel); });
+settingsClose.addEventListener('click', function () { closeModal(settingsPanel); });
+helpClose.addEventListener('click', function () { closeModal(helpPanel); });
+
+[aboutPanel, settingsPanel, helpPanel].forEach(function (p) {
+  p.addEventListener('click', function (e) {
+    if (e.target === p) closeModal(p);
+  });
+});
+
 document.addEventListener('keydown', function (e) {
-  if (e.key === 'Escape') closeAbout();
+  if (e.key === 'Escape') closeAllModals();
+});
+
+/* 使用说明 */
+showHelp.addEventListener('click', function () {
+  closeModal(settingsPanel);
+  openModal(helpPanel);
+});
+
+/* ==========================================================
+   设置项绑定
+========================================================== */
+setParticles.checked  = settings.particles;
+setFullscreen.checked = settings.fullscreen;
+setMagnify.checked    = settings.magnify;
+setMark.checked       = settings.mark;
+setSway.value         = settings.sway;
+
+setParticles.addEventListener('change', function () {
+  settings.particles = setParticles.checked;
+});
+
+setFullscreen.addEventListener('change', function () {
+  settings.fullscreen = setFullscreen.checked;
+});
+
+setMagnify.addEventListener('change', function () {
+  settings.magnify = setMagnify.checked;
+});
+
+setMark.addEventListener('change', function () {
+  settings.mark = setMark.checked;
+});
+
+setSway.addEventListener('change', function () {
+  settings.sway = setSway.value;
+});
+
+/* 颜色选择 */
+colorRow.addEventListener('click', function (e) {
+  const btn = e.target.closest('.colorDot');
+  if (!btn) return;
+
+  const all = colorRow.querySelectorAll('.colorDot');
+  for (let i = 0; i < all.length; i++) all[i].classList.remove('active');
+  btn.classList.add('active');
+
+  settings.particleColor = btn.dataset.color;
+});
+
+/* 清除标记 */
+clearMarks.addEventListener('click', function () {
+  marks.length = 0;
 });
 
 /* ==========================================================
    QQ 群：点击复制群号
 ========================================================== */
+function fallbackCopy(text, cb) {
+  try {
+    const ta = document.createElement('textarea');
+    ta.value = text;
+    ta.style.position = 'fixed';
+    ta.style.opacity  = '0';
+    document.body.appendChild(ta);
+    ta.select();
+    document.execCommand('copy');
+    document.body.removeChild(ta);
+    cb && cb();
+  } catch (e) {}
+}
+
 if (qqLink) {
   qqLink.addEventListener('click', function () {
     const qq = qqLink.dataset.qq;
 
-    const done = () => {
+    const done = function () {
       const old = qqLink.textContent;
       qqLink.classList.add('copied');
       qqLink.textContent = '已复制群号 ✓';
-      setTimeout(() => {
+      setTimeout(function () {
         qqLink.classList.remove('copied');
         qqLink.textContent = old;
       }, 1400);
     };
 
     if (navigator.clipboard && navigator.clipboard.writeText) {
-      navigator.clipboard.writeText(qq).then(done).catch(() => {
+      navigator.clipboard.writeText(qq).then(done).catch(function () {
         fallbackCopy(qq, done);
       });
     } else {
@@ -430,19 +751,30 @@ if (qqLink) {
   });
 }
 
-function fallbackCopy(text, cb) {
-  try {
-    const ta = document.createElement('textarea');
-    ta.value = text;
-    ta.style.position = 'fixed';
-    ta.style.opacity = '0';
-    document.body.appendChild(ta);
-    ta.select();
-    document.execCommand('copy');
-    document.body.removeChild(ta);
-    cb && cb();
-  } catch (e) {}
-}
+/* ==========================================================
+   Canvas 点击：添加运动节点标记
+========================================================== */
+canvas.addEventListener('click', function (e) {
+  if (!settings.mark) return;
+
+  const x = e.clientX;
+  const y = e.clientY;
+
+  /* 只在波形区域附近添加 */
+  if (y < baseY - A * 1.7 || y > baseY + A * 1.7) return;
+
+  /* 排除局部放大窗口区域 */
+  if (settings.magnify) {
+    const boxW = Math.min(260, W * 0.36);
+    const boxH = boxW * 0.62;
+    const bx = W - boxW - 20;
+    const by = H - boxH - 140;
+    if (x >= bx && x <= bx + boxW && y >= by && y <= by + boxH) return;
+  }
+
+  const t = simTime - (W - x) / PX_PER_MS;
+  marks.push({ t: t });
+});
 
 /* ==========================================================
    蓝牙心率
@@ -530,11 +862,11 @@ function onDisconnected() {
 btnConn.addEventListener('click', function () {
   if (btnConn.dataset.on === '1') {
     if (navigator.bluetooth && navigator.bluetooth.getDevices) {
-      navigator.bluetooth.getDevices().then(list => {
-        list.forEach(d => {
+      navigator.bluetooth.getDevices().then(function (list) {
+        list.forEach(function (d) {
           try { if (d.gatt && d.gatt.connected) d.gatt.disconnect(); } catch (e) {}
         });
-      }).catch(() => {});
+      }).catch(function () {});
     }
     onDisconnected();
     return;
