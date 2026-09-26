@@ -70,61 +70,54 @@ function ecgAt(t) {
 }
 
 /* ==========================================================
-   星光精灵
-========================================================== */
-function makeSprite(r, g, b) {
-  const S = 64;
-  const c = document.createElement('canvas');
-  c.width = c.height = S;
-  const x = c.getContext('2d');
-  const grd = x.createRadialGradient(S/2, S/2, 0, S/2, S/2, S/2);
-  grd.addColorStop(0.00, 'rgba(' + r + ',' + g + ',' + b + ',1)');
-  grd.addColorStop(0.14, 'rgba(' + r + ',' + g + ',' + b + ',0.95)');
-  grd.addColorStop(0.34, 'rgba(' + r + ',' + g + ',' + b + ',0.34)');
-  grd.addColorStop(0.62, 'rgba(' + r + ',' + g + ',' + b + ',0.08)');
-  grd.addColorStop(1.00, 'rgba(' + r + ',' + g + ',' + b + ',0)');
-  x.fillStyle = grd;
-  x.fillRect(0, 0, S, S);
-  return c;
-}
-
-const SPARK_SPRITES = [
-  makeSprite(255, 255, 255),
-  makeSprite(255, 255, 255),
-  makeSprite(225, 225, 225),
-  makeSprite(190, 190, 190)
-];
-
-/* ==========================================================
-   心跳 → 星光迸发
+   心跳 → 粒子迸发
 ========================================================== */
 function onBeat(beatTime) {
   const x = W - (simTime - beatTime) * PX_PER_MS;
   const y = baseY - A * 0.95;
 
-  const n = 18 + (Math.random() * 10 | 0);
+  /* 主迸发：数量多、体积小、速度散 */
+  const n = 48 + (Math.random() * 20 | 0);
 
   for (let i = 0; i < n; i++) {
     const ang = Math.random() * TAU;
-    const spd = 50 + Math.random() * 210;
+    const spd = 30 + Math.random() * 260;
 
     sparks.push({
       x, y,
       vx: Math.cos(ang) * spd,
       vy: Math.sin(ang) * spd,
       life: 1,
-      decay: 0.7 + Math.random() * 1.2,
-      size: 1.5 + Math.random() * 3.6,
-      sprite: SPARK_SPRITES[(Math.random() * SPARK_SPRITES.length) | 0]
+      decay: 0.55 + Math.random() * 0.95,
+      size: 0.7 + Math.random() * 1.9,
+      trail: [x, y],
+      maxTrail: 5 + (Math.random() * 7 | 0)
     });
   }
 
+  /* 少量「亮核」粒子：更大更亮，撑住视觉重心 */
+  for (let i = 0; i < 6; i++) {
+    const ang = Math.random() * TAU;
+    const spd = 20 + Math.random() * 70;
+    sparks.push({
+      x, y,
+      vx: Math.cos(ang) * spd,
+      vy: Math.sin(ang) * spd,
+      life: 1,
+      decay: 0.35 + Math.random() * 0.35,
+      size: 2.6 + Math.random() * 1.8,
+      trail: [x, y],
+      maxTrail: 10
+    });
+  }
+
+  /* 涟漪脉冲 */
   ripples.push({
     x, y,
     r: 4,
-    maxR: 90 + Math.random() * 60,
+    maxR: 100 + Math.random() * 70,
     life: 1,
-    decay: 1.5 + Math.random() * 0.7
+    decay: 1.4 + Math.random() * 0.7
   });
 }
 
@@ -261,13 +254,14 @@ function drawWave() {
 }
 
 /* ==========================================================
-   绘制：星光 + 涟漪
+   绘制：粒子 + 拖尾 + 涟漪
 ========================================================== */
 function drawSparks(dtSec) {
   ctx.save();
   ctx.globalCompositeOperation = 'lighter';
 
-  const damp = Math.pow(0.16, dtSec);
+  const damp    = Math.pow(0.14, dtSec);  // 每秒速度衰减到 14%
+  const gravity = 55;                     // 重力 px/s²
 
   for (let i = sparks.length - 1; i >= 0; i--) {
     const p = sparks[i];
@@ -275,38 +269,69 @@ function drawSparks(dtSec) {
     p.life -= dtSec * p.decay;
     if (p.life <= 0) { sparks.splice(i, 1); continue; }
 
-    p.x += p.vx * dtSec;
-    p.y += p.vy * dtSec;
+    /* 记录位置到拖尾 */
+    p.trail.push(p.x, p.y);
+    while (p.trail.length > p.maxTrail * 2) {
+      p.trail.shift();
+      p.trail.shift();
+    }
+
+    /* 物理 */
+    p.vy += gravity * dtSec;
+    p.x  += p.vx * dtSec;
+    p.y  += p.vy * dtSec;
     p.vx *= damp;
     p.vy *= damp;
 
-    const a  = p.life * p.life;
-    const sz = p.size * (0.4 + p.life * 0.95) * 7;
+    const a = p.life * p.life;
 
-    ctx.globalAlpha = a;
-    ctx.drawImage(p.sprite, p.x - sz / 2, p.y - sz / 2, sz, sz);
+    /* --- 拖尾：从旧到新画，越旧越暗越细 --- */
+    const tn = p.trail.length / 2;
+    for (let j = 0; j < tn; j++) {
+      const k  = j / tn;                 // 0 = 最旧, 1 = 最新
+      const ta = a * k * k * 0.45;
+      if (ta < 0.01) continue;
 
-    if (p.size > 2.4 && p.life > 0.35) {
-      const L = p.size * 5.5 * p.life;
-      ctx.globalAlpha = a * 0.6;
+      const tr = p.size * k * 0.85;
+      if (tr < 0.2) continue;
+
+      ctx.globalAlpha = ta;
       ctx.fillStyle = '#fff';
+      ctx.beginPath();
+      ctx.arc(p.trail[j * 2], p.trail[j * 2 + 1], tr, 0, TAU);
+      ctx.fill();
+    }
+
+    /* --- 粒子核心 --- */
+    const cr = p.size * (0.5 + p.life * 0.9);
+    ctx.globalAlpha = a;
+    ctx.fillStyle = '#fff';
+    ctx.beginPath();
+    ctx.arc(p.x, p.y, cr, 0, TAU);
+    ctx.fill();
+
+    /* --- 大粒子加十字光芒 --- */
+    if (p.size > 2.2 && p.life > 0.4) {
+      const L = p.size * 3.5 * p.life;
+      ctx.globalAlpha = a * 0.5;
       ctx.fillRect(p.x - L, p.y - 0.5, L * 2, 1);
       ctx.fillRect(p.x - 0.5, p.y - L, 1, L * 2);
     }
   }
 
+  /* --- 涟漪 --- */
   for (let i = ripples.length - 1; i >= 0; i--) {
     const rp = ripples[i];
     rp.life -= dtSec * rp.decay;
     if (rp.life <= 0) { ripples.splice(i, 1); continue; }
 
-    const t = 1 - rp.life;
+    const t    = 1 - rp.life;
     const ease = 1 - Math.pow(1 - t, 2.4);
-    const r = rp.r + (rp.maxR - rp.r) * ease;
+    const r    = rp.r + (rp.maxR - rp.r) * ease;
 
-    ctx.globalAlpha = rp.life * rp.life * 0.55;
+    ctx.globalAlpha = rp.life * rp.life * 0.5;
     ctx.strokeStyle = '#fff';
-    ctx.lineWidth = 1.6 * rp.life + 0.2;
+    ctx.lineWidth   = 1.5 * rp.life + 0.2;
     ctx.beginPath();
     ctx.arc(rp.x, rp.y, r, 0, TAU);
     ctx.stroke();
