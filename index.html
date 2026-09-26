@@ -23,11 +23,23 @@
       <span class="sigDot"></span>
     </span>
   </div>
+  <div id="sigStrengthRow">
+    <span class="sigBars">
+      <i class="b1"></i><i class="b2"></i><i class="b3"></i><i class="b4"></i>
+    </span>
+    <b id="sigPct">--</b>
+    <span class="sigLabel">SIGNAL</span>
+  </div>
 </div>
 
 <div id="topBar">
   <button id="settingsBtn" class="topBtn">设置</button>
   <button id="aboutBtn" class="topBtn">关于</button>
+</div>
+
+<div id="pickHint" class="pickHint">
+  点击画布任意位置，设置粒子分布中心
+  <span class="pickHintSub">按 ESC 取消</span>
 </div>
 
 <!-- ============ 关于面板 ============ -->
@@ -42,7 +54,7 @@
       <h3>关于本站</h3>
       <p>
         本站通过浏览器 <b>Web Bluetooth</b> 直连支持标准 BLE 心率服务
-        （<b>0x180D</b>）的设备，实时绘制滚动心电图。每次心搏都会在 R 峰位置
+        （<b>0x180D</b>）的设备，实时绘制滚动心电图。每次心搏都会在指定位置
         迸发一大片星空粒子，并点亮信号指示灯。
         <br><br>
         未连接设备时自动进入<b>模拟模式</b>，拖动底部的速度滑块可改变运动强度，
@@ -205,17 +217,6 @@
 
       <div class="settingRow">
         <div class="settingLabel">
-          <span class="settingName">全屏星空</span>
-          <span class="settingHint">粒子云覆盖整个屏幕</span>
-        </div>
-        <label class="switch">
-          <input type="checkbox" id="setFullscreen">
-          <span class="slider"></span>
-        </label>
-      </div>
-
-      <div class="settingRow">
-        <div class="settingLabel">
           <span class="settingName">粒子强度</span>
         </div>
         <select id="setDensity" class="selectBox">
@@ -224,6 +225,49 @@
           <option value="2.4">爆炸</option>
           <option value="3.5">狂野</option>
         </select>
+      </div>
+
+      <div class="settingRow">
+        <div class="settingLabel">
+          <span class="settingName">全屏分布</span>
+          <span class="settingHint">粒子云覆盖整个屏幕</span>
+        </div>
+        <label class="switch">
+          <input type="checkbox" id="setFullDist">
+          <span class="slider"></span>
+        </label>
+      </div>
+
+      <div class="settingRow" id="anchorRow">
+        <div class="settingLabel">
+          <span class="settingName">分布位置</span>
+          <span class="settingHint">粒子云的中心锚点</span>
+        </div>
+        <select id="setAnchor" class="selectBox">
+          <option value="rpeak" selected>跟随 R 峰</option>
+          <option value="center">屏幕中心</option>
+          <option value="top">屏幕顶部</option>
+          <option value="bottom">屏幕底部</option>
+          <option value="left">屏幕左侧</option>
+          <option value="right">屏幕右侧</option>
+          <option value="custom">自定义位置</option>
+        </select>
+      </div>
+
+      <div class="settingRow" id="customAnchorRow" style="display:none">
+        <div class="settingLabel">
+          <span class="settingName">自定义坐标</span>
+          <span class="settingHint" id="customAnchorHint">尚未设置</span>
+        </div>
+        <button id="pickAnchor" class="smallBtn">重新拾取</button>
+      </div>
+
+      <div class="settingRow" id="radiusRow">
+        <div class="settingLabel">
+          <span class="settingName">分布半径</span>
+          <span class="settingHint" id="radiusHint">屏幕短边的 60%</span>
+        </div>
+        <input id="setRadius" class="miniRange" type="range" min="20" max="100" step="1" value="60">
       </div>
 
       <div class="settingRow">
@@ -300,6 +344,17 @@
           <span class="slider"></span>
         </label>
       </div>
+
+      <div class="settingRow">
+        <div class="settingLabel">
+          <span class="settingName">信号强度条</span>
+          <span class="settingHint">显示蓝牙连接质量</span>
+        </div>
+        <label class="switch">
+          <input type="checkbox" id="setSigStrength" checked>
+          <span class="slider"></span>
+        </label>
+      </div>
     </div>
 
     <div class="modalSection">
@@ -332,8 +387,10 @@
       <h3>粒子效果</h3>
       <p>
         <b>启用粒子</b>：控制心跳时是否迸发星空粒子。<br>
-        <b>全屏星空</b>：开启后，粒子云以屏幕中心为圆心覆盖整个屏幕；关闭时，粒子云以 R 峰为中心，覆盖屏幕中部一大片区域。<br>
         <b>粒子强度</b>：控制每次心跳生成的粒子数量（标准 / 丰富 / 爆炸 / 狂野）。<br>
+        <b>全屏分布</b>：开启后，粒子云以屏幕中心为圆心覆盖整个屏幕，此时分布位置、分布半径、自定义坐标将被禁用。<br>
+        <b>分布位置</b>：粒子云的中心锚点，可选跟随 R 峰 / 屏幕中心 / 顶部 / 底部 / 左侧 / 右侧 / 自定义位置。选自定义后会进入拾取模式，点击画布任意位置即可设定。<br>
+        <b>分布半径</b>：粒子云覆盖范围，从屏幕短边的 20% 到 100%。<br>
         <b>粒子颜色</b>：点击色块切换粒子颜色。<br>
         <b>摆动方向</b>：控制粒子的初速度方向。自由扩散是四散；向上/下/左/右是定向；顺时针/逆时针带切向旋转。
       </p>
@@ -350,7 +407,8 @@
     <div class="modalSection">
       <h3>信号提示</h3>
       <p>
-        <b>心跳信号灯</b>：位于顶部 BPM 数字下方，是一个会扩散脉冲的圆环。每次心搏时，圆环向外扩散并淡出，用来直观确认信号正在被接收。
+        <b>心跳信号灯</b>：位于顶部 BPM 数字下方，是一个会扩散脉冲的圆环。每次心搏时，圆环向外扩散并淡出，用来直观确认信号正在被接收。<br>
+        <b>信号强度条</b>：显示蓝牙连接质量（0–100%），四格信号柱随着强度增加逐格点亮。真实连接时基于心率数据包到达的稳定性估算；模拟模式下显示为稳定值。
       </p>
     </div>
 
