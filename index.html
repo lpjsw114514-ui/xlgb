@@ -1,0 +1,156 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="default">
+    <title>🍅 番茄钟 · 专注统计</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div class="app-container">
+    <div class="card" id="appCard">
+        <div class="main-view active" id="mainView">
+            <div class="top-nav">
+                <div class="nav-title">🍅 番茄钟</div>
+                <div class="nav-buttons">
+                    <button class="nav-btn active" data-view="timer">计时</button>
+                    <button class="nav-btn" data-view="stats">统计</button>
+                    <button class="nav-btn" data-view="settings">设置</button>
+                </div>
+            </div>
+
+            <!-- 计时子视图 -->
+            <div id="timerSubview">
+                <div class="header">
+                    <div class="title">
+                        <span>🍅</span>
+                        <span>专注时钟</span>
+                        <span class="nickname-badge" id="homeNickname">👤 专注者</span>
+                        <span class="level-badge" id="levelBadge">⭐ LV0</span>
+                    </div>
+                    <div class="stats">
+                        <div class="tomato-count" id="tomatoCount">
+                            🍅 <span id="countValue">0</span>
+                        </div>
+                        <button class="btn-icon" id="btnSound" title="声音开关">🔊</button>
+                    </div>
+                </div>
+
+                <div class="timer-section">
+                    <div class="timer-ring-wrapper">
+                        <svg viewBox="0 0 300 300">
+                            <circle class="ring-bg" cx="150" cy="150" r="125"/>
+                            <circle class="ring-progress" id="ringProgress" cx="150" cy="150" r="125" stroke-dasharray="785.4" stroke-dashoffset="0"/>
+                        </svg>
+                        <div class="timer-display">
+                            <div class="timer-time" id="timerDisplay">25:00</div>
+                            <div class="timer-label" id="timerLabel">剩余时间</div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="presets" id="presetContainer">
+                    <button class="preset-btn" data-minutes="1">1分</button>
+                    <button class="preset-btn" data-minutes="5">5分</button>
+                    <button class="preset-btn" data-minutes="10">10分</button>
+                    <button class="preset-btn" data-minutes="20">20分</button>
+                    <button class="preset-btn active" data-minutes="25">25分</button>
+                    <button class="preset-btn" data-minutes="30">30分</button>
+                    <button class="preset-btn" data-minutes="60">1小时</button>
+                    <button class="preset-btn" data-minutes="75">75分</button>
+                    <button class="preset-btn" data-minutes="90">90分</button>
+                </div>
+
+                <div class="controls">
+                    <button class="btn-control btn-start" id="btnStart">▶ 开始</button>
+                    <button class="btn-control btn-reset" id="btnReset">↻ 重置</button>
+                    <button class="cycle-toggle" id="cycleToggle" title="自动循环模式">🔁 循环</button>
+                </div>
+            </div>
+
+            <!-- 统计子视图 -->
+            <div id="statsSubview" style="display:none; flex:1; flex-direction:column;">
+                <div class="summary-cards">
+                    <div class="summary-card">
+                        <div class="value" id="totalMinutes">0</div>
+                        <div class="label">专注分钟</div>
+                    </div>
+                    <div class="summary-card">
+                        <div class="value" id="totalTomatoes">0</div>
+                        <div class="label">获得番茄</div>
+                    </div>
+                    <div class="summary-card">
+                        <div class="value" id="levelDisplay">LV0</div>
+                        <div class="label">当前等级</div>
+                    </div>
+                </div>
+                <div style="font-weight:600; margin-bottom:8px; color:var(--text-primary);">历史记录</div>
+                <div class="record-list" id="recordList">
+                    <div class="empty-records">暂无记录，开始第一个番茄吧！</div>
+                </div>
+            </div>
+
+            <!-- 设置子视图 -->
+            <div id="settingsSubview" style="display:none; flex:1; flex-direction:column;">
+                <div class="settings-group">
+                    <label>昵称</label>
+                    <input type="text" id="nicknameInput" class="settings-input" placeholder="输入昵称">
+                    <button class="settings-btn btn-change-nickname" id="btnSaveNickname">保存昵称</button>
+                    <div class="settings-error" id="nicknameError"></div>
+                    <div class="settings-success" id="nicknameSuccess"></div>
+                </div>
+
+                <div class="settings-group">
+                    <label>工作与休息设置（分钟）</label>
+                    <div style="display:flex; gap:10px;">
+                        <div style="flex:1;">
+                            <label style="font-size:12px;">工作</label>
+                            <input type="number" id="workMinutesInput" class="settings-input" min="1" max="180" value="25">
+                        </div>
+                        <div style="flex:1;">
+                            <label style="font-size:12px;">休息</label>
+                            <input type="number" id="restMinutesInput" class="settings-input" min="1" max="60" value="5">
+                        </div>
+                    </div>
+                    <button class="settings-btn" id="btnSaveWorkRest" style="background:var(--tomato); color:#fff;">保存工作/休息设置</button>
+                    <div class="settings-error" id="workRestError"></div>
+                    <div class="settings-success" id="workRestSuccess"></div>
+                </div>
+
+                <!-- 数据迁移 -->
+                <div class="settings-group">
+                    <label>数据迁移</label>
+                    <p class="hint-text">生成纯数字编码，完整迁移所有数据。<br>编码包含：昵称、设置、循环开关、总专注分钟数、全部历史记录。<br>编码生成后 <strong>2 小时内有效</strong>。</p>
+                    <button class="settings-btn" id="btnExportData" style="background:#2196F3; color:#fff; margin-bottom:8px;">📤 生成数字编码</button>
+                    <textarea id="importExportArea" class="settings-input" rows="3"
+                        placeholder="点击上方按钮生成编码；或在此粘贴编码后点击下方导入"
+                        style="resize:vertical; font-size:13px; font-family:monospace; min-height:80px; word-break:break-all;"></textarea>
+                    <div class="code-info" id="codeInfo"></div>
+                    <button class="settings-btn" id="btnImportData" style="background:#4CAF50; color:#fff;">📥 导入数据</button>
+                    <button class="settings-btn" id="btnCopyCode" style="background:#f5f5f5; color:#555; margin-top:8px;">📋 复制编码</button>
+                    <div class="settings-error" id="dataError"></div>
+                    <div class="settings-success" id="dataSuccess"></div>
+                </div>
+            </div>
+
+            <div class="celebration-overlay" id="celebrationOverlay">
+                <div class="emoji">🎉</div>
+                <div class="text">时间到！</div>
+                <div class="sub-text" id="celebrationSubText">干得漂亮，休息一下吧</div>
+            </div>
+
+            <div class="success-overlay" id="successOverlay">
+                <div class="emoji">🥳</div>
+                <div class="text">操作成功</div>
+                <div class="sub-text" id="successMessage">耶耶耶太好了</div>
+                <button class="btn-close-success" id="btnCloseSuccess" type="button">太棒了</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script src="script.js" defer></script>
+</body>
+</html>
