@@ -9,6 +9,13 @@
 ![License](https://img.shields.io/badge/License-MIT-green)
 
 ### 🔗 在线体验：**[https://xinlv.pages.dev](https://xinlv.pages.dev)**
+## 官方 Q 群
+
+有问题、想反馈、想交流，欢迎加入官方 QQ 讨论群：
+
+**QQ 群：1125056057**
+
+（点击群号即可复制）
 
 ---
 
