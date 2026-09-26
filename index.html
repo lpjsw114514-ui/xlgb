@@ -15,7 +15,14 @@
     <span id="bpmVal">--</span>
     <span id="bpmUnit">BPM</span>
   </div>
-  <div id="bpmSub">HEART RATE · <b id="srcTag">SIM</b></div>
+  <div id="bpmSub">
+    <span>HEART RATE · <b id="srcTag">SIM</b></span>
+    <span id="signal" class="signalIdle">
+      <span class="sigRing"></span>
+      <span class="sigRing sigRing2"></span>
+      <span class="sigDot"></span>
+    </span>
+  </div>
 </div>
 
 <div id="topBar">
@@ -36,7 +43,7 @@
       <p>
         本站通过浏览器 <b>Web Bluetooth</b> 直连支持标准 BLE 心率服务
         （<b>0x180D</b>）的设备，实时绘制滚动心电图。每次心搏都会在 R 峰位置
-        迸发一簇粒子。
+        迸发一簇粒子，并点亮信号指示灯。
         <br><br>
         未连接设备时自动进入<b>模拟模式</b>，拖动底部的速度滑块可改变运动强度，
         心率会随强度平滑上升并带轻微波动，适合演示与调试。
@@ -209,6 +216,18 @@
 
       <div class="settingRow">
         <div class="settingLabel">
+          <span class="settingName">粒子强度</span>
+        </div>
+        <select id="setDensity" class="selectBox">
+          <option value="1">标准</option>
+          <option value="1.6" selected>丰富</option>
+          <option value="2.4">爆炸</option>
+          <option value="3.5">狂野</option>
+        </select>
+      </div>
+
+      <div class="settingRow">
+        <div class="settingLabel">
           <span class="settingName">粒子颜色</span>
         </div>
         <div class="colorRow" id="colorRow">
@@ -269,6 +288,21 @@
     </div>
 
     <div class="modalSection">
+      <h3>信号提示</h3>
+
+      <div class="settingRow">
+        <div class="settingLabel">
+          <span class="settingName">心跳信号灯</span>
+          <span class="settingHint">每次心搏时脉冲闪烁</span>
+        </div>
+        <label class="switch">
+          <input type="checkbox" id="setSignal" checked>
+          <span class="slider"></span>
+        </label>
+      </div>
+    </div>
+
+    <div class="modalSection">
       <h3>帮助</h3>
       <button id="showHelp" class="fullBtn">查看使用说明</button>
     </div>
@@ -289,7 +323,7 @@
       <p>
         1. 用 <b>Chrome</b> 或 <b>Edge</b> 打开页面（HTTPS 或 localhost）<br>
         2. 点击底部「连接心率设备」，选择你的设备<br>
-        3. 连接成功后，心电图会实时显示心率，每次心搏触发粒子迸发<br>
+        3. 连接成功后，心电图会实时显示心率，每次心搏触发粒子迸发与信号灯闪烁<br>
         4. 未连接设备时，拖动「速度」滑块即可模拟 68–180 BPM
       </p>
     </div>
@@ -299,6 +333,7 @@
       <p>
         <b>启用粒子</b>：控制心跳时是否迸发粒子。<br>
         <b>全屏粒子</b>：开启后，粒子会铺满整个屏幕，不再只集中在 R 峰。<br>
+        <b>粒子强度</b>：控制粒子的基础数量倍数（标准 / 丰富 / 爆炸 / 狂野）。<br>
         <b>粒子颜色</b>：点击色块切换粒子颜色。<br>
         <b>摆动方向</b>：控制粒子的初速度方向。自由扩散是四散；向上/下/左/右是定向；顺时针/逆时针带切向旋转。
       </p>
@@ -309,6 +344,13 @@
       <p>
         <b>局部放大</b>：在屏幕右下角显示一个放大窗口，展示最近一个完整心搏的波形。<br>
         <b>手动打点标记</b>：开启后，点击波形区域会在该位置添加一个运动节点标记（白色竖线 + 圆点）。标记会随波形一起滚动。
+      </p>
+    </div>
+
+    <div class="modalSection">
+      <h3>信号提示</h3>
+      <p>
+        <b>心跳信号灯</b>：位于顶部 BPM 数字下方，是一个会扩散脉冲的圆环。每次心搏时，圆环向外扩散并淡出，用来直观确认信号正在被接收。
       </p>
     </div>
 
