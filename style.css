@@ -77,7 +77,6 @@ body::after{
   border-color:rgba(255,255,255,.55);
 }
 
-/* 心跳时 JS 会添加 .beat 类触发动画 */
 .signalIdle.beat .sigDot{
   opacity:1;
 }
