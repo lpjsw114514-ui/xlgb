@@ -8,489 +8,427 @@
 </head>
 <body>
 
-<canvas id="c"></canvas>
+<!-- ============ 三层结构 ============ -->
+<!-- Layer 1 (Background) + Layer 2 (Glass) 都在这个 WebGL canvas 里 -->
+<canvas id="c" width="1080" height="1920"></canvas>
 
-<div id="hud">
-  <div id="bpmRow">
-    <span id="bpmVal">--</span>
-    <span id="bpmUnit">BPM</span>
+<!-- Layer 3 (Content)：DOM UI 叠加在最上层，清晰、可交互，不参与折射 -->
+<div id="ui">
+
+  <div id="hud">
+    <div id="bpmRow">
+      <span id="bpmVal">--</span>
+      <span id="bpmUnit">BPM</span>
+    </div>
+    <div id="bpmSub">
+      <span>HEART RATE · <b id="srcTag">SIM</b></span>
+      <span id="signal" class="signalIdle">
+        <span class="sigRing"></span>
+        <span class="sigRing sigRing2"></span>
+        <span class="sigDot"></span>
+      </span>
+    </div>
+    <div id="sigStrengthRow">
+      <span class="sigBars">
+        <i class="b1"></i><i class="b2"></i><i class="b3"></i><i class="b4"></i>
+      </span>
+      <b id="sigPct">--</b>
+      <span class="sigLabel">SIGNAL</span>
+    </div>
   </div>
-  <div id="bpmSub">
-    <span>HEART RATE · <b id="srcTag">SIM</b></span>
-    <span id="signal" class="signalIdle">
-      <span class="sigRing"></span>
-      <span class="sigRing sigRing2"></span>
-      <span class="sigDot"></span>
-    </span>
+
+  <div id="topBar">
+    <button id="settingsBtn" class="topBtn">设置</button>
+    <button id="aboutBtn" class="topBtn">关于</button>
   </div>
-  <div id="sigStrengthRow">
-    <span class="sigBars">
-      <i class="b1"></i><i class="b2"></i><i class="b3"></i><i class="b4"></i>
-    </span>
-    <b id="sigPct">--</b>
-    <span class="sigLabel">SIGNAL</span>
+
+  <div id="pickHint" class="pickHint">
+    点击画布任意位置，设置粒子分布中心
+    <span class="pickHintSub">按 ESC 取消</span>
   </div>
-</div>
 
-<div id="topBar">
-  <button id="settingsBtn" class="topBtn">设置</button>
-  <button id="aboutBtn" class="topBtn">关于</button>
-</div>
+  <!-- ============ 关于面板 ============ -->
+  <div id="aboutPanel" class="modal">
+    <div class="modalCard">
+      <button class="modalClose" id="aboutClose">✕</button>
 
-<div id="pickHint" class="pickHint">
-  点击画布任意位置，设置粒子分布中心
-  <span class="pickHintSub">按 ESC 取消</span>
-</div>
+      <div class="modalTitle">ECG · 心电监护</div>
+      <div class="modalSub">Real-time Heart Monitor</div>
 
-<!-- ============ 关于面板 ============ -->
-<div id="aboutPanel" class="modal">
-  <div class="modalCard">
-    <button class="modalClose" id="aboutClose">✕</button>
+      <div class="modalSection">
+        <h3>关于本站</h3>
+        <p>
+          本站通过浏览器 <b>Web Bluetooth</b> 直连支持标准 BLE 心率服务
+          （<b>0x180D</b>）的设备，实时绘制滚动心电图。每次心搏都会在指定位置
+          迸发一大片星空粒子，并点亮信号指示灯。
+          <br><br>
+          液态玻璃通过 WebGL 片元着色器渲染：SDF 高度场、双界面折射、Face/Inner/Outer
+          三路采样、边缘色散与 GGX 高光，形成真正的光路折射，而非 RGB 假扭曲。
+        </p>
+      </div>
 
-    <div class="modalTitle">ECG · 心电监护</div>
-    <div class="modalSub">Real-time Heart Monitor</div>
-
-    <div class="modalSection">
-      <h3>关于本站</h3>
-      <p>
-        本站通过浏览器 <b>Web Bluetooth</b> 直连支持标准 BLE 心率服务
-        （<b>0x180D</b>）的设备，实时绘制滚动心电图。每次心搏都会在指定位置
-        迸发一大片星空粒子，并点亮信号指示灯。
-        <br><br>
-        未连接设备时自动进入<b>模拟模式</b>，拖动底部的速度滑块可改变运动强度，
-        心率会随强度平滑上升并带轻微波动，适合演示与调试。
-      </p>
-    </div>
-
-    <div class="modalSection">
-      <h3>兼容设备</h3>
-      <p class="note">
-        只要设备支持标准 BLE 心率服务（0x180D）即可连接。部分手表/手环需先在设备端
-        手动开启「心率广播」或「心率推送」功能，浏览器才能搜索到。
-      </p>
-
-      <div class="devGrid">
-
-        <div class="devGroup hw">
-          <h4>华为 HUAWEI</h4>
-          <ul>
-            <li>WATCH GT 2 / 3 / 4 / 5</li>
-            <li>WATCH 4 / 4 Pro / 5</li>
-            <li>WATCH Ultimate</li>
-            <li>WATCH FIT 2 / 3 / 4</li>
-            <li>手环 8 / 9 / 10</li>
-            <li>手环 4 / 5 / 6 / 7</li>
-          </ul>
+      <div class="modalSection">
+        <h3>兼容设备</h3>
+        <p class="note">
+          只要设备支持标准 BLE 心率服务（0x180D）即可连接。部分手表/手环需先在设备端
+          手动开启「心率广播」或「心率推送」功能，浏览器才能搜索到。
+        </p>
+        <div class="devGrid">
+          <div class="devGroup hw">
+            <h4>华为 HUAWEI</h4>
+            <ul>
+              <li>WATCH GT 2 / 3 / 4 / 5</li>
+              <li>WATCH 4 / 4 Pro / 5</li>
+              <li>WATCH Ultimate</li>
+              <li>WATCH FIT 2 / 3 / 4</li>
+              <li>手环 8 / 9 / 10</li>
+              <li>手环 4 / 5 / 6 / 7</li>
+            </ul>
+          </div>
+          <div class="devGroup">
+            <h4>Polar</h4>
+            <ul><li>H10</li><li>H9</li><li>OH1</li><li>Verity Sense</li></ul>
+          </div>
+          <div class="devGroup">
+            <h4>Garmin</h4>
+            <ul><li>HRM-Dual</li><li>HRM-Pro</li><li>HRM-Pro Plus</li><li>支持广播的 Garmin 手表</li></ul>
+          </div>
+          <div class="devGroup">
+            <h4>Wahoo</h4>
+            <ul><li>TICKR</li><li>TICKR X</li><li>TICKR X2</li><li>TICKR FIT</li></ul>
+          </div>
+          <div class="devGroup">
+            <h4>小米 / Amazfit</h4>
+            <ul><li>小米手环 6–10</li><li>Amazfit Band 系列</li><li>Amazfit GTR / GTS</li></ul>
+          </div>
+          <div class="devGroup">
+            <h4>Samsung</h4>
+            <ul><li>Galaxy Watch 4–8</li><li>Galaxy Watch FE</li><li>Galaxy Watch Ultra</li></ul>
+          </div>
+          <div class="devGroup">
+            <h4>Apple</h4>
+            <ul><li>Apple Watch Series 1–11</li><li>Apple Watch SE</li><li>Apple Watch Ultra</li><li>需开启心率广播</li></ul>
+          </div>
+          <div class="devGroup">
+            <h4>其他品牌</h4>
+            <ul><li>Suunto 心率带</li><li>Decathlon / Kalenji</li><li>moofit</li><li>MyZone / Coospo / Magene</li></ul>
+          </div>
         </div>
+      </div>
 
-        <div class="devGroup">
-          <h4>Polar</h4>
-          <ul>
-            <li>H10</li>
-            <li>H9</li>
-            <li>OH1</li>
-            <li>Verity Sense</li>
-          </ul>
-        </div>
+      <div class="modalSection">
+        <h3>使用提示</h3>
+        <p>
+          · 建议使用 <b>Chrome</b> 或 <b>Edge</b> 等 Chromium 内核浏览器<br>
+          · 页面必须运行在 <b>HTTPS</b> 或 <b>localhost</b> 下，蓝牙才可用<br>
+          · 搜索时请确保设备处于配对模式且未被其他 App 占用<br>
+          · 若设备未广播标准服务，可尝试在代码中改用 <b>acceptAllDevices</b> 兜底
+        </p>
+      </div>
 
-        <div class="devGroup">
-          <h4>Garmin</h4>
-          <ul>
-            <li>HRM-Dual</li>
-            <li>HRM-Pro</li>
-            <li>HRM-Pro Plus</li>
-            <li>支持广播的 Garmin 手表</li>
-          </ul>
-        </div>
+      <div class="modalSection">
+        <h3>用户讨论群</h3>
+        <p>
+          <a class="pillLink qqLink" id="qqLink" href="javascript:void(0)" data-qq="1125056057">
+            QQ 群 · 1125056057
+          </a>
+        </p>
+      </div>
 
-        <div class="devGroup">
-          <h4>Wahoo</h4>
-          <ul>
-            <li>TICKR</li>
-            <li>TICKR X</li>
-            <li>TICKR X2</li>
-            <li>TICKR FIT</li>
-          </ul>
-        </div>
+      <div class="modalSection">
+        <h3>联系开发者</h3>
+        <p>
+          <a href="mailto:kskbl114514@hotmail.com" class="pillLink mailLink">kskbl114514@hotmail.com</a>
+        </p>
+      </div>
 
-        <div class="devGroup">
-          <h4>小米 / Amazfit</h4>
-          <ul>
-            <li>小米手环 6 / 7 / 8 / 9 / 10</li>
-            <li>Amazfit Band 系列</li>
-            <li>Amazfit GTR / GTS</li>
-          </ul>
-        </div>
-
-        <div class="devGroup">
-          <h4>Samsung</h4>
-          <ul>
-            <li>Galaxy Watch 4 / 5 / 6 / 7 / 8</li>
-            <li>Galaxy Watch FE</li>
-            <li>Galaxy Watch Ultra</li>
-          </ul>
-        </div>
-
-        <div class="devGroup">
-          <h4>Apple</h4>
-          <ul>
-            <li>Apple Watch Series 1–11</li>
-            <li>Apple Watch SE</li>
-            <li>Apple Watch Ultra</li>
-            <li>需开启心率广播</li>
-          </ul>
-        </div>
-
-        <div class="devGroup">
-          <h4>其他品牌</h4>
-          <ul>
-            <li>Suunto 智能心率带</li>
-            <li>Decathlon / Kalenji 双模心率带</li>
-            <li>moofit 心率监测器</li>
-            <li>MyZone 系列</li>
-            <li>Coospo / Magene 心率带</li>
-          </ul>
-        </div>
-
+      <div class="modalSection">
+        <h3>源码仓库</h3>
+        <p>
+          <a class="pillLink ghLink" href="https://github.com/lpjsw114514-ui/xlgb" target="_blank" rel="noopener">
+            github.com/lpjsw114514-ui/xlgb
+          </a>
+        </p>
       </div>
     </div>
-
-    <div class="modalSection">
-      <h3>使用提示</h3>
-      <p>
-        · 建议使用 <b>Chrome</b> 或 <b>Edge</b> 等 Chromium 内核浏览器<br>
-        · 页面必须运行在 <b>HTTPS</b> 或 <b>localhost</b> 下，蓝牙才可用<br>
-        · 搜索时请确保设备处于配对模式且未被其他 App 占用<br>
-        · 若设备未广播标准服务，可尝试在代码中改用 <b>acceptAllDevices</b> 兜底
-      </p>
-    </div>
-
-    <div class="modalSection">
-      <h3>用户讨论群</h3>
-      <p>
-        <a class="pillLink qqLink" id="qqLink" href="javascript:void(0)" data-qq="1125056057">
-          QQ 群 · 1125056057
-        </a>
-      </p>
-    </div>
-
-    <div class="modalSection">
-      <h3>联系开发者</h3>
-      <p>
-        <a href="mailto:kskbl114514@hotmail.com" class="pillLink mailLink">kskbl114514@hotmail.com</a>
-      </p>
-    </div>
-
-    <div class="modalSection">
-      <h3>源码仓库</h3>
-      <p>
-        <a class="pillLink ghLink" href="https://github.com/lpjsw114514-ui/xlgb" target="_blank" rel="noopener">
-          github.com/lpjsw114514-ui/xlgb
-        </a>
-      </p>
-    </div>
-
   </div>
-</div>
 
-<!-- ============ 设置面板 ============ -->
-<div id="settingsPanel" class="modal">
-  <div class="modalCard">
-    <button class="modalClose" id="settingsClose">✕</button>
+  <!-- ============ 设置面板 ============ -->
+  <div id="settingsPanel" class="modal">
+    <div class="modalCard">
+      <button class="modalClose" id="settingsClose">✕</button>
 
-    <div class="modalTitle">设置</div>
-    <div class="modalSub">Settings</div>
+      <div class="modalTitle">设置</div>
+      <div class="modalSub">Settings</div>
 
-    <div class="modalSection">
-      <h3>外观</h3>
+      <div class="modalSection">
+        <h3>液态玻璃</h3>
 
-      <div class="settingRow">
-        <div class="settingLabel">
-          <span class="settingName">液态玻璃</span>
-          <span class="settingHint">苹果风格玻璃质感</span>
+        <div class="settingRow">
+          <div class="settingLabel">
+            <span class="settingName">启用液态玻璃</span>
+            <span class="settingHint">WebGL 光路折射玻璃层</span>
+          </div>
+          <label class="switch">
+            <input type="checkbox" id="setGlass" checked>
+            <span class="slider"></span>
+          </label>
         </div>
-        <label class="switch">
-          <input type="checkbox" id="setGlass">
-          <span class="slider"></span>
-        </label>
+
+        <div class="settingRow" id="glassParamsRow">
+          <div class="settingLabel">
+            <span class="settingName">玻璃厚度</span>
+            <span class="settingHint" id="thicknessHint">0.045</span>
+          </div>
+          <input id="setThickness" class="miniRange" type="range" min="5" max="150" step="1" value="45">
+        </div>
+
+        <div class="settingRow">
+          <div class="settingLabel">
+            <span class="settingName">折射率 IOR</span>
+            <span class="settingHint" id="iorHint">1.46</span>
+          </div>
+          <input id="setIOR" class="miniRange" type="range" min="110" max="200" step="1" value="146">
+        </div>
+
+        <div class="settingRow">
+          <div class="settingLabel">
+            <span class="settingName">色散</span>
+            <span class="settingHint" id="dispHint">0.004</span>
+          </div>
+          <input id="setDisp" class="miniRange" type="range" min="0" max="30" step="1" value="4">
+        </div>
+
+        <div class="settingRow">
+          <div class="settingLabel">
+            <span class="settingName">玻璃位置</span>
+            <span class="settingHint" id="glassYHint">屏幕 55%</span>
+          </div>
+          <input id="setGlassY" class="miniRange" type="range" min="15" max="85" step="1" value="55">
+        </div>
+
+        <div class="settingRow">
+          <div class="settingLabel">
+            <span class="settingName">玻璃高度</span>
+            <span class="settingHint" id="glassHHint">屏幕 14%</span>
+          </div>
+          <input id="setGlassH" class="miniRange" type="range" min="6" max="40" step="1" value="14">
+        </div>
       </div>
 
-      <div class="settingRow" id="glassAlphaRow" style="display:none">
-        <div class="settingLabel">
-          <span class="settingName">透明度</span>
-          <span class="settingHint" id="glassAlphaHint">30%</span>
+      <div class="modalSection">
+        <h3>粒子效果</h3>
+
+        <div class="settingRow">
+          <div class="settingLabel">
+            <span class="settingName">启用粒子</span>
+            <span class="settingHint">心跳时迸发星空粒子</span>
+          </div>
+          <label class="switch">
+            <input type="checkbox" id="setParticles" checked>
+            <span class="slider"></span>
+          </label>
         </div>
-        <input id="setGlassAlpha" class="miniRange" type="range" min="0" max="100" step="1" value="30">
+
+        <div class="settingRow">
+          <div class="settingLabel">
+            <span class="settingName">粒子强度</span>
+          </div>
+          <select id="setDensity" class="selectBox">
+            <option value="1">标准</option>
+            <option value="1.6" selected>丰富</option>
+            <option value="2.4">爆炸</option>
+            <option value="3.5">狂野</option>
+          </select>
+        </div>
+
+        <div class="settingRow">
+          <div class="settingLabel">
+            <span class="settingName">全屏分布</span>
+          </div>
+          <label class="switch">
+            <input type="checkbox" id="setFullDist">
+            <span class="slider"></span>
+          </label>
+        </div>
+
+        <div class="settingRow" id="anchorRow">
+          <div class="settingLabel">
+            <span class="settingName">分布位置</span>
+          </div>
+          <select id="setAnchor" class="selectBox">
+            <option value="rpeak" selected>跟随 R 峰</option>
+            <option value="center">屏幕中心</option>
+            <option value="top">屏幕顶部</option>
+            <option value="bottom">屏幕底部</option>
+            <option value="left">屏幕左侧</option>
+            <option value="right">屏幕右侧</option>
+            <option value="custom">自定义位置</option>
+          </select>
+        </div>
+
+        <div class="settingRow" id="customAnchorRow" style="display:none">
+          <div class="settingLabel">
+            <span class="settingName">自定义坐标</span>
+            <span class="settingHint" id="customAnchorHint">尚未设置</span>
+          </div>
+          <button id="pickAnchor" class="smallBtn">重新拾取</button>
+        </div>
+
+        <div class="settingRow" id="radiusRow">
+          <div class="settingLabel">
+            <span class="settingName">分布半径</span>
+            <span class="settingHint" id="radiusHint">屏幕短边的 60%</span>
+          </div>
+          <input id="setRadius" class="miniRange" type="range" min="20" max="100" step="1" value="60">
+        </div>
+
+        <div class="settingRow">
+          <div class="settingLabel">
+            <span class="settingName">粒子颜色</span>
+          </div>
+          <div class="colorRow" id="colorRow">
+            <button class="colorDot active" data-color="#ffffff" style="background:#ffffff"></button>
+            <button class="colorDot" data-color="#ff5a5f" style="background:#ff5a5f"></button>
+            <button class="colorDot" data-color="#5ac8fa" style="background:#5ac8fa"></button>
+            <button class="colorDot" data-color="#ffd60a" style="background:#ffd60a"></button>
+            <button class="colorDot" data-color="#bf5af2" style="background:#bf5af2"></button>
+            <button class="colorDot" data-color="#30d158" style="background:#30d158"></button>
+          </div>
+        </div>
+
+        <div class="settingRow">
+          <div class="settingLabel">
+            <span class="settingName">摆动方向</span>
+          </div>
+          <select id="setSway" class="selectBox">
+            <option value="free">自由扩散</option>
+            <option value="up">向上</option>
+            <option value="down">向下</option>
+            <option value="left">向左</option>
+            <option value="right">向右</option>
+            <option value="cw">顺时针</option>
+            <option value="ccw">逆时针</option>
+          </select>
+        </div>
       </div>
 
-      <div class="settingRow" id="edgeWarpRow" style="display:none">
-        <div class="settingLabel">
-          <span class="settingName">边缘挤压</span>
-          <span class="settingHint">粒子经过玻璃边缘时被推挤变形</span>
+      <div class="modalSection">
+        <h3>心率曲线</h3>
+
+        <div class="settingRow">
+          <div class="settingLabel">
+            <span class="settingName">局部放大</span>
+          </div>
+          <label class="switch">
+            <input type="checkbox" id="setMagnify" checked>
+            <span class="slider"></span>
+          </label>
         </div>
-        <label class="switch">
-          <input type="checkbox" id="setEdgeWarp" checked>
-          <span class="slider"></span>
-        </label>
+
+        <div class="settingRow">
+          <div class="settingLabel">
+            <span class="settingName">手动打点标记</span>
+          </div>
+          <label class="switch">
+            <input type="checkbox" id="setMark" checked>
+            <span class="slider"></span>
+          </label>
+        </div>
+
+        <div class="settingRow">
+          <div class="settingLabel"></div>
+          <button id="clearMarks" class="smallBtn">清除所有标记</button>
+        </div>
       </div>
 
-      <div class="settingRow" id="warpStrengthRow" style="display:none">
-        <div class="settingLabel">
-          <span class="settingName">挤压强度</span>
-          <span class="settingHint" id="warpStrengthHint">100%</span>
+      <div class="modalSection">
+        <h3>信号提示</h3>
+
+        <div class="settingRow">
+          <div class="settingLabel">
+            <span class="settingName">心跳信号灯</span>
+          </div>
+          <label class="switch">
+            <input type="checkbox" id="setSignal" checked>
+            <span class="slider"></span>
+          </label>
         </div>
-        <input id="setWarpStrength" class="miniRange" type="range" min="20" max="200" step="5" value="100">
+
+        <div class="settingRow">
+          <div class="settingLabel">
+            <span class="settingName">信号强度条</span>
+          </div>
+          <label class="switch">
+            <input type="checkbox" id="setSigStrength" checked>
+            <span class="slider"></span>
+          </label>
+        </div>
+      </div>
+
+      <div class="modalSection">
+        <h3>帮助</h3>
+        <button id="showHelp" class="fullBtn">查看使用说明</button>
       </div>
     </div>
-
-    <div class="modalSection">
-      <h3>粒子效果</h3>
-
-      <div class="settingRow">
-        <div class="settingLabel">
-          <span class="settingName">启用粒子</span>
-          <span class="settingHint">心跳时迸发星空粒子</span>
-        </div>
-        <label class="switch">
-          <input type="checkbox" id="setParticles" checked>
-          <span class="slider"></span>
-        </label>
-      </div>
-
-      <div class="settingRow">
-        <div class="settingLabel">
-          <span class="settingName">粒子强度</span>
-        </div>
-        <select id="setDensity" class="selectBox">
-          <option value="1">标准</option>
-          <option value="1.6" selected>丰富</option>
-          <option value="2.4">爆炸</option>
-          <option value="3.5">狂野</option>
-        </select>
-      </div>
-
-      <div class="settingRow">
-        <div class="settingLabel">
-          <span class="settingName">全屏分布</span>
-          <span class="settingHint">粒子云覆盖整个屏幕</span>
-        </div>
-        <label class="switch">
-          <input type="checkbox" id="setFullDist">
-          <span class="slider"></span>
-        </label>
-      </div>
-
-      <div class="settingRow" id="anchorRow">
-        <div class="settingLabel">
-          <span class="settingName">分布位置</span>
-          <span class="settingHint">粒子云的中心锚点</span>
-        </div>
-        <select id="setAnchor" class="selectBox">
-          <option value="rpeak" selected>跟随 R 峰</option>
-          <option value="center">屏幕中心</option>
-          <option value="top">屏幕顶部</option>
-          <option value="bottom">屏幕底部</option>
-          <option value="left">屏幕左侧</option>
-          <option value="right">屏幕右侧</option>
-          <option value="custom">自定义位置</option>
-        </select>
-      </div>
-
-      <div class="settingRow" id="customAnchorRow" style="display:none">
-        <div class="settingLabel">
-          <span class="settingName">自定义坐标</span>
-          <span class="settingHint" id="customAnchorHint">尚未设置</span>
-        </div>
-        <button id="pickAnchor" class="smallBtn">重新拾取</button>
-      </div>
-
-      <div class="settingRow" id="radiusRow">
-        <div class="settingLabel">
-          <span class="settingName">分布半径</span>
-          <span class="settingHint" id="radiusHint">屏幕短边的 60%</span>
-        </div>
-        <input id="setRadius" class="miniRange" type="range" min="20" max="100" step="1" value="60">
-      </div>
-
-      <div class="settingRow">
-        <div class="settingLabel">
-          <span class="settingName">粒子颜色</span>
-        </div>
-        <div class="colorRow" id="colorRow">
-          <button class="colorDot active" data-color="#ffffff" style="background:#ffffff" title="纯白"></button>
-          <button class="colorDot" data-color="#ff5a5f" style="background:#ff5a5f" title="朱红"></button>
-          <button class="colorDot" data-color="#5ac8fa" style="background:#5ac8fa" title="天蓝"></button>
-          <button class="colorDot" data-color="#ffd60a" style="background:#ffd60a" title="金黄"></button>
-          <button class="colorDot" data-color="#bf5af2" style="background:#bf5af2" title="紫罗兰"></button>
-          <button class="colorDot" data-color="#30d158" style="background:#30d158" title="翠绿"></button>
-        </div>
-      </div>
-
-      <div class="settingRow">
-        <div class="settingLabel">
-          <span class="settingName">摆动方向</span>
-        </div>
-        <select id="setSway" class="selectBox">
-          <option value="free">自由扩散</option>
-          <option value="up">向上</option>
-          <option value="down">向下</option>
-          <option value="left">向左</option>
-          <option value="right">向右</option>
-          <option value="cw">顺时针</option>
-          <option value="ccw">逆时针</option>
-        </select>
-      </div>
-    </div>
-
-    <div class="modalSection">
-      <h3>心率曲线</h3>
-
-      <div class="settingRow">
-        <div class="settingLabel">
-          <span class="settingName">局部放大</span>
-          <span class="settingHint">显示心搏放大窗口</span>
-        </div>
-        <label class="switch">
-          <input type="checkbox" id="setMagnify" checked>
-          <span class="slider"></span>
-        </label>
-      </div>
-
-      <div class="settingRow">
-        <div class="settingLabel">
-          <span class="settingName">手动打点标记</span>
-          <span class="settingHint">点击波形添加运动节点</span>
-        </div>
-        <label class="switch">
-          <input type="checkbox" id="setMark" checked>
-          <span class="slider"></span>
-        </label>
-      </div>
-
-      <div class="settingRow">
-        <div class="settingLabel"></div>
-        <button id="clearMarks" class="smallBtn">清除所有标记</button>
-      </div>
-    </div>
-
-    <div class="modalSection">
-      <h3>信号提示</h3>
-
-      <div class="settingRow">
-        <div class="settingLabel">
-          <span class="settingName">心跳信号灯</span>
-          <span class="settingHint">每次心搏时脉冲闪烁</span>
-        </div>
-        <label class="switch">
-          <input type="checkbox" id="setSignal" checked>
-          <span class="slider"></span>
-        </label>
-      </div>
-
-      <div class="settingRow">
-        <div class="settingLabel">
-          <span class="settingName">信号强度条</span>
-          <span class="settingHint">显示蓝牙连接质量</span>
-        </div>
-        <label class="switch">
-          <input type="checkbox" id="setSigStrength" checked>
-          <span class="slider"></span>
-        </label>
-      </div>
-    </div>
-
-    <div class="modalSection">
-      <h3>帮助</h3>
-      <button id="showHelp" class="fullBtn">查看使用说明</button>
-    </div>
-
   </div>
-</div>
 
-<!-- ============ 使用说明 ============ -->
-<div id="helpPanel" class="modal">
-  <div class="modalCard">
-    <button class="modalClose" id="helpClose">✕</button>
+  <!-- ============ 使用说明 ============ -->
+  <div id="helpPanel" class="modal">
+    <div class="modalCard">
+      <button class="modalClose" id="helpClose">✕</button>
 
-    <div class="modalTitle">使用说明</div>
-    <div class="modalSub">User Guide</div>
+      <div class="modalTitle">使用说明</div>
+      <div class="modalSub">User Guide</div>
 
-    <div class="modalSection">
-      <h3>快速开始</h3>
-      <p>
-        1. 用 <b>Chrome</b> 或 <b>Edge</b> 打开页面（HTTPS 或 localhost）<br>
-        2. 点击底部「连接心率设备」，选择你的设备<br>
-        3. 连接成功后，心电图会实时显示心率，每次心搏触发星空粒子与信号灯闪烁<br>
-        4. 未连接设备时，拖动「速度」滑块即可模拟 68–180 BPM
-      </p>
+      <div class="modalSection">
+        <h3>三层架构</h3>
+        <p>
+          <b>Background</b>：ECG 波形与粒子渲染到离屏画布，上传为 paintComposeRT 纹理，并生成 5 级模糊金字塔。<br>
+          <b>Glass</b>：WebGL 片元着色器读取 paintComposeRT，通过 SDF 高度场、双界面折射、Face/Inner/Outer 三路采样与边缘色散，得到最终透明材质。<br>
+          <b>Content</b>：本面板、按钮、文字、图标都在 DOM 层，始终清晰且可交互，不参与折射与模糊。
+        </p>
+      </div>
+
+      <div class="modalSection">
+        <h3>液态玻璃参数</h3>
+        <p>
+          <b>玻璃厚度</b>：影响高度场幅度，越厚折射位移越大。<br>
+          <b>折射率 IOR</b>：1.46 为标准光学玻璃，越大折射越强。<br>
+          <b>色散</b>：RGB 三路 IOR 差值，越大边缘彩虹越明显。<br>
+          <b>玻璃位置</b> / <b>玻璃高度</b>：控制玻璃带在屏幕上的垂直位置与厚度。
+        </p>
+      </div>
+
+      <div class="modalSection">
+        <h3>快速开始</h3>
+        <p>
+          1. 用 Chrome / Edge 打开页面（HTTPS 或 localhost）<br>
+          2. 点击底部「连接心率设备」，选择你的设备<br>
+          3. 未连接设备时，拖动「速度」滑块即可模拟 68–180 BPM
+        </p>
+      </div>
+
+      <div class="modalSection">
+        <h3>浏览器要求</h3>
+        <p>
+          Chrome / Edge 等 Chromium 内核浏览器，页面运行在 HTTPS 或 localhost 下。
+          Safari、Firefox 暂不支持 Web Bluetooth。
+        </p>
+      </div>
     </div>
-
-    <div class="modalSection">
-      <h3>外观</h3>
-      <p>
-        <b>液态玻璃</b>：开启后，面板、按钮、弹窗切换为苹果风格的液态玻璃质感。<br>
-        <b>透明度</b>：调节玻璃背景的不透明程度，0% 最透明，100% 最实。<br>
-        <b>边缘挤压</b>：开启后，粒子经过玻璃面板边缘时会被拉伸变形，模拟液态玻璃的折射推挤效果。<br>
-        <b>挤压强度</b>：调节边缘变形的幅度。
-      </p>
-    </div>
-
-    <div class="modalSection">
-      <h3>粒子效果</h3>
-      <p>
-        <b>启用粒子</b>：控制心跳时是否迸发星空粒子。<br>
-        <b>粒子强度</b>：控制每次心跳生成的粒子数量。<br>
-        <b>全屏分布</b>：粒子云覆盖整个屏幕。<br>
-        <b>分布位置</b>：粒子云中心锚点。<br>
-        <b>分布半径</b>：粒子云覆盖范围。<br>
-        <b>粒子颜色</b>：点击色块切换颜色。<br>
-        <b>摆动方向</b>：控制粒子初速度方向。
-      </p>
-    </div>
-
-    <div class="modalSection">
-      <h3>心率曲线</h3>
-      <p>
-        <b>局部放大</b>：右下角放大窗口，展示最近一个完整心搏的波形。<br>
-        <b>手动打点标记</b>：点击波形区域添加运动节点标记。
-      </p>
-    </div>
-
-    <div class="modalSection">
-      <h3>信号提示</h3>
-      <p>
-        <b>心跳信号灯</b>：顶部 BPM 数字下方，每次心搏向外扩散脉冲圆环。<br>
-        <b>信号强度条</b>：显示蓝牙连接质量，四格信号柱逐格点亮。
-      </p>
-    </div>
-
-    <div class="modalSection">
-      <h3>面板操作</h3>
-      <p>
-        · 点击右上角「设置」/「关于」切换面板<br>
-        · 点击面板外空白区域或按 <b>ESC</b> 关闭当前面板<br>
-        · 打开面板时，背景的 ECG 波形与粒子继续运行
-      </p>
-    </div>
-
-    <div class="modalSection">
-      <h3>浏览器要求</h3>
-      <p>
-        Chrome / Edge 等 Chromium 内核浏览器，页面运行在 HTTPS 或 localhost 下。Safari、Firefox 暂不支持 Web Bluetooth。
-      </p>
-    </div>
-
   </div>
-</div>
 
-<div id="panel">
-  <button id="btnConnect">连接心率设备</button>
-  <div class="row">
-    <span class="lbl">速度</span>
-    <input id="speed" type="range" min="0" max="20" step="0.1" value="0">
-    <span id="speedVal">0.0 km/h</span>
+  <div id="panel">
+    <button id="btnConnect">连接心率设备</button>
+    <div class="row">
+      <span class="lbl">速度</span>
+      <input id="speed" type="range" min="0" max="20" step="0.1" value="0">
+      <span id="speedVal">0.0 km/h</span>
+    </div>
+    <div id="status">模拟模式 · 拖动滑块改变运动强度</div>
   </div>
-  <div id="status">模拟模式 · 拖动滑块改变运动强度</div>
+
 </div>
 
 <script src="script.js"></script>
