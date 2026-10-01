@@ -1,3 +1,15 @@
+/* ==========================================================
+   根变量
+========================================================== */
+:root {
+  /* 液态玻璃背景不透明度，由 JS 动态修改（0 ~ 1） */
+  --glass-alpha: 0.35;
+  /* 液态玻璃背景基础色（深色） */
+  --glass-color: 18, 20, 30;
+  /* 液态玻璃背景基础色（高光） */
+  --glass-highlight: 255, 255, 255;
+}
+
 *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
 html,body{
   margin:0;height:100%;overflow:hidden;
@@ -192,6 +204,7 @@ body.picking canvas{cursor:crosshair}
   display:flex;gap:8px;
 }
 .topBtn{
+  position:relative;
   padding:9px 18px;
   border-radius:100px;
   border:1px solid rgba(255,255,255,.22);
@@ -201,6 +214,7 @@ body.picking canvas{cursor:crosshair}
   cursor:pointer;transition:.22s;
   backdrop-filter:blur(10px);-webkit-backdrop-filter:blur(10px);
   font-family:inherit;
+  overflow:hidden;
 }
 .topBtn:hover{background:rgba(255,255,255,.12);border-color:rgba(255,255,255,.45);color:#fff}
 .topBtn:active{transform:scale(.96)}
@@ -210,8 +224,8 @@ body.picking canvas{cursor:crosshair}
   position:fixed;inset:0;z-index:20;
   display:flex;align-items:center;justify-content:center;
   padding:20px;
-  background:rgba(0,0,0,.86);
-  backdrop-filter:blur(22px);-webkit-backdrop-filter:blur(22px);
+  background:rgba(0,0,0,.25); /* 默认模式下稍微压暗背景 */
+  backdrop-filter:blur(2px);-webkit-backdrop-filter:blur(2px);
   opacity:0;pointer-events:none;
   transition:opacity .3s ease;
 }
@@ -222,12 +236,15 @@ body.picking canvas{cursor:crosshair}
   width:min(600px,100%);
   max-height:82vh;overflow-y:auto;
   padding:clamp(24px,4vw,38px);
-  background:#0a0a0a;
+  background:rgba(10,10,10,.86);
   border:1px solid rgba(255,255,255,.14);
   border-radius:22px;
   transform:translateY(16px) scale(.98);
   transition:transform .34s cubic-bezier(.22,1,.36,1);
   box-shadow:0 30px 90px rgba(0,0,0,.9);
+  backdrop-filter:blur(20px) saturate(1.4);
+  -webkit-backdrop-filter:blur(20px) saturate(1.4);
+  overflow-x:hidden;
 }
 .modal.show .modalCard{transform:translateY(0) scale(1)}
 .modalCard::-webkit-scrollbar{width:5px}
@@ -240,6 +257,7 @@ body.picking canvas{cursor:crosshair}
   background:transparent;color:#999;
   font-size:15px;line-height:1;cursor:pointer;
   transition:.2s;font-family:inherit;
+  z-index:3;
 }
 .modalClose:hover{background:rgba(255,255,255,.1);color:#fff;border-color:rgba(255,255,255,.4)}
 
@@ -435,7 +453,7 @@ body.picking canvas{cursor:crosshair}
 .selectBox:focus{border-color:rgba(255,255,255,.5)}
 .selectBox option{background:#0a0a0a;color:#e8e8e8}
 
-/* 迷你滑块（分布半径） */
+/* 迷你滑块（分布半径 / 透明度） */
 .miniRange{
   -webkit-appearance:none;appearance:none;
   width:110px;
@@ -549,3 +567,268 @@ input[type=range]:disabled{opacity:.24;cursor:not-allowed}
 }
 #status.warn{color:#d8b070}
 #status.ok{color:#e0e0e0}
+
+
+/* ================================================================
+   ================= 液态玻璃（Liquid Glass） ======================
+   默认关闭，通过 body.liquid-glass 类启用
+================================================================ */
+
+/* ---- 顶部胶囊按钮 ---- */
+body.liquid-glass .topBtn{
+  background:rgba(var(--glass-color), calc(var(--glass-alpha) * 0.7));
+  border:1px solid rgba(255,255,255,.22);
+  color:#f0f0f0;
+  backdrop-filter:blur(28px) saturate(1.9) brightness(1.08);
+  -webkit-backdrop-filter:blur(28px) saturate(1.9) brightness(1.08);
+  box-shadow:
+    0 8px 28px rgba(0,0,0,.45),
+    0 0 0 .5px rgba(255,255,255,.05),
+    inset 0 1px 0 rgba(255,255,255,.35),
+    inset 0 -1px 0 rgba(255,255,255,.05),
+    inset 1px 0 0 rgba(255,255,255,.09),
+    inset -1px 0 0 rgba(255,255,255,.09);
+  text-shadow:0 1px 8px rgba(255,255,255,.22);
+}
+body.liquid-glass .topBtn::before{
+  content:'';
+  position:absolute;
+  top:0;left:16%;right:16%;
+  height:1px;
+  background:linear-gradient(90deg,transparent,rgba(255,255,255,.85),transparent);
+  pointer-events:none;
+  border-radius:inherit;
+}
+body.liquid-glass .topBtn::after{
+  content:'';
+  position:absolute;
+  inset:0;
+  border-radius:inherit;
+  background:
+    radial-gradient(ellipse 120% 70% at 20% 0%, rgba(255,255,255,.16), transparent 55%),
+    radial-gradient(ellipse 100% 60% at 85% 100%, rgba(180,200,255,.08), transparent 55%);
+  pointer-events:none;
+  mix-blend-mode:screen;
+}
+body.liquid-glass .topBtn:hover{
+  background:rgba(var(--glass-color), calc(var(--glass-alpha) * 0.9));
+  border-color:rgba(255,255,255,.4);
+  color:#fff;
+}
+
+/* ---- 底部控制面板 ---- */
+body.liquid-glass #panel{
+  background:rgba(var(--glass-color), var(--glass-alpha));
+  border:1px solid rgba(255,255,255,.18);
+  backdrop-filter:blur(32px) saturate(1.9) brightness(1.06);
+  -webkit-backdrop-filter:blur(32px) saturate(1.9) brightness(1.06);
+  box-shadow:
+    0 24px 70px rgba(0,0,0,.6),
+    0 0 0 .5px rgba(255,255,255,.04),
+    inset 0 1px 0 rgba(255,255,255,.3),
+    inset 0 -1px 0 rgba(255,255,255,.04),
+    inset 1px 0 0 rgba(255,255,255,.08),
+    inset -1px 0 0 rgba(255,255,255,.08),
+    inset 0 0 70px rgba(255,255,255,.03);
+  overflow:hidden;
+}
+body.liquid-glass #panel::before{
+  content:'';
+  position:absolute;
+  top:0;left:12%;right:12%;
+  height:1px;
+  background:linear-gradient(90deg,transparent,rgba(255,255,255,.8),transparent);
+  pointer-events:none;
+  z-index:1;
+}
+body.liquid-glass #panel::after{
+  content:'';
+  position:absolute;
+  inset:0;
+  border-radius:inherit;
+  background:
+    radial-gradient(ellipse 110% 60% at 18% 0%, rgba(255,255,255,.12), transparent 55%),
+    radial-gradient(ellipse 90% 55% at 85% 100%, rgba(170,200,255,.06), transparent 55%);
+  pointer-events:none;
+  z-index:0;
+}
+body.liquid-glass #panel > *{
+  position:relative;
+  z-index:2;
+}
+body.liquid-glass #btnConnect{
+  background:rgba(255,255,255,.08);
+  border:1px solid rgba(255,255,255,.3);
+  backdrop-filter:blur(14px);
+  -webkit-backdrop-filter:blur(14px);
+  box-shadow:
+    0 4px 16px rgba(0,0,0,.35),
+    inset 0 1px 0 rgba(255,255,255,.35),
+    inset 0 -1px 0 rgba(255,255,255,.05);
+}
+body.liquid-glass #btnConnect:hover{
+  background:rgba(255,255,255,.16);
+  border-color:rgba(255,255,255,.55);
+}
+body.liquid-glass #btnConnect[data-on="1"]{
+  background:rgba(255,255,255,.92);
+  border-color:#fff;
+  color:#000;
+  box-shadow:
+    0 6px 24px rgba(255,255,255,.25),
+    inset 0 1px 0 rgba(255,255,255,.9),
+    inset 0 -1px 0 rgba(0,0,0,.12);
+}
+
+/* ---- 模态遮罩：极低透明度，让粒子完全透出 ---- */
+body.liquid-glass .modal{
+  background:rgba(0,0,0,.08); /* 很淡的遮罩，保证粒子可见 */
+  backdrop-filter:blur(1px);
+  -webkit-backdrop-filter:blur(1px);
+}
+
+/* ---- 模态卡片（设置/关于/说明） ---- */
+body.liquid-glass .modalCard{
+  background:rgba(var(--glass-color), var(--glass-alpha));
+  border:1px solid rgba(255,255,255,.2);
+  backdrop-filter:blur(36px) saturate(1.9) brightness(1.08);
+  -webkit-backdrop-filter:blur(36px) saturate(1.9) brightness(1.08);
+  box-shadow:
+    0 32px 100px rgba(0,0,0,.7),
+    0 0 0 .5px rgba(255,255,255,.06),
+    inset 0 1px 0 rgba(255,255,255,.28),
+    inset 0 -1px 0 rgba(255,255,255,.04),
+    inset 1px 0 0 rgba(255,255,255,.08),
+    inset -1px 0 0 rgba(255,255,255,.08),
+    inset 0 0 90px rgba(255,255,255,.025);
+}
+body.liquid-glass .modalCard::before{
+  content:'';
+  position:absolute;
+  top:0;left:14%;right:14%;
+  height:1px;
+  background:linear-gradient(90deg,transparent,rgba(255,255,255,.75),transparent);
+  pointer-events:none;
+  z-index:2;
+}
+body.liquid-glass .modalCard::after{
+  content:'';
+  position:absolute;
+  inset:0;
+  border-radius:inherit;
+  background:
+    radial-gradient(ellipse 130% 60% at 15% -5%, rgba(255,255,255,.14), transparent 55%),
+    radial-gradient(ellipse 90% 50% at 90% 105%, rgba(170,200,255,.07), transparent 55%);
+  pointer-events:none;
+  z-index:0;
+}
+body.liquid-glass .modalCard > *{
+  position:relative;
+  z-index:1;
+}
+
+/* 关闭按钮玻璃化 */
+body.liquid-glass .modalClose{
+  background:rgba(255,255,255,.06);
+  border:1px solid rgba(255,255,255,.22);
+  backdrop-filter:blur(10px);
+  -webkit-backdrop-filter:blur(10px);
+  color:#ddd;
+  box-shadow:inset 0 1px 0 rgba(255,255,255,.25);
+}
+body.liquid-glass .modalClose:hover{
+  background:rgba(255,255,255,.16);
+  border-color:rgba(255,255,255,.5);
+  color:#fff;
+}
+
+/* ---- 设置项里的玻璃化元素 ---- */
+body.liquid-glass .devGroup{
+  background:rgba(255,255,255,.035);
+  border:1px solid rgba(255,255,255,.14);
+  backdrop-filter:blur(10px);
+  -webkit-backdrop-filter:blur(10px);
+  box-shadow:
+    inset 0 1px 0 rgba(255,255,255,.12),
+    0 2px 10px rgba(0,0,0,.2);
+}
+body.liquid-glass .devGroup:hover{
+  background:rgba(255,255,255,.075);
+  border-color:rgba(255,255,255,.26);
+}
+
+body.liquid-glass .pillLink{
+  background:rgba(255,255,255,.06);
+  border:1px solid rgba(255,255,255,.22);
+  backdrop-filter:blur(10px);
+  -webkit-backdrop-filter:blur(10px);
+  box-shadow:inset 0 1px 0 rgba(255,255,255,.22);
+}
+body.liquid-glass .pillLink:hover{
+  background:rgba(255,255,255,.14);
+  border-color:rgba(255,255,255,.5);
+}
+
+body.liquid-glass .selectBox{
+  background-color:rgba(255,255,255,.08);
+  border:1px solid rgba(255,255,255,.22);
+  backdrop-filter:blur(12px);
+  -webkit-backdrop-filter:blur(12px);
+  box-shadow:inset 0 1px 0 rgba(255,255,255,.2);
+}
+
+body.liquid-glass .smallBtn,
+body.liquid-glass .fullBtn{
+  background:rgba(255,255,255,.07);
+  border:1px solid rgba(255,255,255,.24);
+  backdrop-filter:blur(12px);
+  -webkit-backdrop-filter:blur(12px);
+  box-shadow:inset 0 1px 0 rgba(255,255,255,.25);
+  color:#f0f0f0;
+}
+body.liquid-glass .smallBtn:hover,
+body.liquid-glass .fullBtn:hover{
+  background:rgba(255,255,255,.16);
+  border-color:rgba(255,255,255,.5);
+  color:#fff;
+}
+
+body.liquid-glass .switch .slider{
+  background:rgba(255,255,255,.14);
+  border:1px solid rgba(255,255,255,.22);
+  box-shadow:inset 0 1px 0 rgba(255,255,255,.2);
+}
+body.liquid-glass .switch input:checked + .slider{
+  background:rgba(255,255,255,.95);
+  border-color:#fff;
+  box-shadow:
+    0 0 12px rgba(255,255,255,.45),
+    inset 0 1px 0 rgba(255,255,255,.95),
+    inset 0 -1px 0 rgba(0,0,0,.1);
+}
+
+body.liquid-glass .colorDot{
+  border:2px solid rgba(255,255,255,.28);
+  box-shadow:
+    0 2px 8px rgba(0,0,0,.35),
+    inset 0 1px 0 rgba(255,255,255,.35);
+}
+body.liquid-glass .colorDot.active{
+  border-color:#fff;
+  box-shadow:
+    0 0 0 2px rgba(255,255,255,.35),
+    0 0 12px rgba(255,255,255,.5),
+    inset 0 1px 0 rgba(255,255,255,.5);
+}
+
+body.liquid-glass .settingRow{
+  border-bottom-color:rgba(255,255,255,.09);
+}
+
+body.liquid-glass .modalSub{
+  color:#7a8699;
+}
+
+body.liquid-glass .modalSection h3{
+  color:#8a94a6;
+}

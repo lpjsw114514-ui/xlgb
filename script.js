@@ -38,6 +38,8 @@ window.addEventListener('orientationchange', () => setTimeout(resize, 120));
    设置
 ========================================================== */
 const settings = {
+  glass:         false,      /* 液态玻璃，默认关闭 */
+  glassAlpha:    0.35,       /* 液态玻璃背景不透明度，0 最透明 */
   particles:     true,
   density:       1.6,
   particleColor: '#ffffff',
@@ -154,7 +156,6 @@ function addSpark(p) {
    分布中心 / 半径
 ========================================================== */
 function getCloudCenter(rx, ry) {
-  /* 全屏分布：始终以屏幕中心为圆心 */
   if (settings.fullDist) return { x: W / 2, y: H / 2 };
 
   const a = settings.anchor;
@@ -168,7 +169,6 @@ function getCloudCenter(rx, ry) {
 }
 
 function getCloudRadius() {
-  /* 全屏分布：覆盖整个屏幕（含四角） */
   if (settings.fullDist) return Math.hypot(W, H) * 0.55;
   return Math.min(W, H) * (settings.radiusPct / 100);
 }
@@ -200,8 +200,6 @@ function onBeat(beatTime) {
     const center = getCloudCenter(rx, ry);
     const cloudR = getCloudRadius();
 
-    /* ---------- 星空云 ---------- */
-    /* 全屏时额外增加数量，让覆盖面积密度不至于太稀 */
     const baseN = settings.fullDist ? 480 : 320;
     const n = Math.round((baseN + Math.random() * 180) * mult);
 
@@ -232,7 +230,6 @@ function onBeat(beatTime) {
       });
     }
 
-    /* ---------- 少量亮核：从 R 峰飞散的拖尾粒子 ---------- */
     const nc = Math.round(18 * mult);
     for (let i = 0; i < nc; i++) {
       const spd = 25 + Math.random() * 120;
@@ -319,7 +316,6 @@ function update(dt) {
   bpmVal.textContent = Math.round(bpm);
   bpmVal.style.transform = 'scale(' + (1 + beatEnv * 0.05).toFixed(4) + ')';
 
-  /* 信号强度 */
   if (usingReal) {
     const sinceLast = performance.now() - lastPacketTime;
     if (sinceLast > 3000) {
@@ -752,6 +748,11 @@ const clearMarks= document.getElementById('clearMarks');
 const pickHintEl = document.getElementById('pickHint');
 
 /* 设置控件 */
+const setGlass      = document.getElementById('setGlass');
+const setGlassAlpha = document.getElementById('setGlassAlpha');
+const glassAlphaRow = document.getElementById('glassAlphaRow');
+const glassAlphaHint= document.getElementById('glassAlphaHint');
+
 const setParticles  = document.getElementById('setParticles');
 const setMagnify    = document.getElementById('setMagnify');
 const setMark       = document.getElementById('setMark');
@@ -772,6 +773,30 @@ const radiusHint      = document.getElementById('radiusHint');
 
 const colorRow       = document.getElementById('colorRow');
 const sigStrengthRow = document.getElementById('sigStrengthRow');
+
+/* ==========================================================
+   液态玻璃开关与透明度
+========================================================== */
+function applyGlass() {
+  if (settings.glass) {
+    document.body.classList.add('liquid-glass');
+    // 显示透明度调节行
+    glassAlphaRow.style.display = '';
+    // 应用透明度到 CSS 变量
+    const alpha = settings.glassAlpha; // 0 ~ 1
+    document.documentElement.style.setProperty('--glass-alpha', alpha);
+    glassAlphaHint.textContent = Math.round(alpha * 100) + '%';
+  } else {
+    document.body.classList.remove('liquid-glass');
+    glassAlphaRow.style.display = 'none';
+  }
+}
+
+function updateGlassAlpha(val) {
+  settings.glassAlpha = val;
+  document.documentElement.style.setProperty('--glass-alpha', val);
+  glassAlphaHint.textContent = Math.round(val * 100) + '%';
+}
 
 /* ==========================================================
    模态面板控制
@@ -845,7 +870,6 @@ function updateCustomAnchorHint() {
 ========================================================== */
 function updateDistUI() {
   if (settings.fullDist) {
-    /* 全屏分布：禁用位置/半径/自定义坐标，并退出拾取 */
     if (pickingAnchor) exitPicking();
 
     anchorRow.classList.add('dimmed');
@@ -864,7 +888,6 @@ function updateDistUI() {
     setRadius.disabled = false;
     pickAnchorBtn.disabled = false;
 
-    /* 自定义位置时显示坐标行 */
     if (settings.anchor === 'custom') {
       customAnchorRow.style.display = '';
       updateCustomAnchorHint();
@@ -877,6 +900,7 @@ function updateDistUI() {
 /* ==========================================================
    设置项绑定
 ========================================================== */
+setGlass.checked       = settings.glass;
 setParticles.checked   = settings.particles;
 setMagnify.checked     = settings.magnify;
 setMark.checked        = settings.mark;
@@ -887,10 +911,22 @@ setSway.value          = settings.sway;
 setDensity.value       = String(settings.density);
 setAnchor.value        = settings.anchor;
 setRadius.value        = String(settings.radiusPct);
+setGlassAlpha.value    = String(settings.glassAlpha * 100);
 
 radiusHint.textContent = '屏幕短边的 ' + settings.radiusPct + '%';
 updateCustomAnchorHint();
 updateDistUI();
+applyGlass();
+
+setGlass.addEventListener('change', function () {
+  settings.glass = setGlass.checked;
+  applyGlass();
+});
+
+setGlassAlpha.addEventListener('input', function () {
+  const val = parseInt(setGlassAlpha.value, 10) / 100;
+  updateGlassAlpha(val);
+});
 
 setParticles.addEventListener('change', function () {
   settings.particles = setParticles.checked;
@@ -1019,7 +1055,6 @@ canvas.addEventListener('click', function (e) {
   const x = e.clientX;
   const y = e.clientY;
 
-  /* 拾取自定义锚点 */
   if (pickingAnchor) {
     settings.customAnchor = {
       x: x / W,
@@ -1030,7 +1065,6 @@ canvas.addEventListener('click', function (e) {
     return;
   }
 
-  /* 手动打点 */
   if (!settings.mark) return;
 
   if (y < baseY - A * 1.7 || y > baseY + A * 1.7) return;
