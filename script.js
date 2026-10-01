@@ -2,109 +2,22 @@
 'use strict';
 
 /* ==========================================================
-   ================ 常量与状态 ==============================
+   视口尺寸 —— 跟随视口，不锁定分辨率
 ========================================================== */
-const CW = 1080;          // Canvas 固定分辨率宽
-const CH = 1920;          // Canvas 固定分辨率高
-const ASPECT = CW / CH;   // 9:16
-
 const canvas = document.getElementById('c');
-canvas.width  = CW;
-canvas.height = CH;
 
-/* 视口内等比缩放居中 */
-function layoutCanvas() {
-  const vw = window.innerWidth;
-  const vh = window.innerHeight;
-  const viewAspect = vw / vh;
+let CW = 1, CH = 1, ASPECT = 1, DPR = 1;
 
-  let w, h, left, top;
-  if (viewAspect > ASPECT) {
-    /* 视口比画布宽 → 高度撑满 */
-    h = vh;
-    w = vh * ASPECT;
-    left = (vw - w) / 2;
-    top = 0;
-  } else {
-    /* 视口比画布窄 → 宽度撑满 */
-    w = vw;
-    h = vw / ASPECT;
-    left = 0;
-    top = (vh - h) / 2;
-  }
+/* 背景布局参数（随 resize 重新计算） */
+let BG_BASEY = 0;
+let BG_A = 0;
 
-  canvas.style.width  = w + 'px';
-  canvas.style.height = h + 'px';
-  canvas.style.left   = left + 'px';
-  canvas.style.top    = top + 'px';
-}
-layoutCanvas();
-window.addEventListener('resize', layoutCanvas);
-window.addEventListener('orientationchange', () => setTimeout(layoutCanvas, 120));
-
-/* ==========================================================
-   ================ 设置状态 ================================
-========================================================== */
-const settings = {
-  glass:         true,
-  glassThickness: 0.045,
-  ior:           1.46,
-  dispersion:    0.004,
-  glassY:        55,
-  glassH:        14,
-  particles:     true,
-  density:       1.6,
-  particleColor: '#ffffff',
-  sway:          'free',
-  fullDist:      false,
-  anchor:        'rpeak',
-  customAnchor:  { x: 0.5, y: 0.5 },
-  radiusPct:     60,
-  magnify:       true,
-  mark:          true,
-  signal:        true,
-  sigStrength:   true
-};
-
-/* ==========================================================
-   ================ ECG / 粒子 状态 =========================
-========================================================== */
-const SAMPLE_MS = 5;
-const PX_PER_MS = 0.5;
-const MAX_SPARKS = 6000;
-
-let simTime = 0;
-let nextSampleTime = 0;
-
-let samples = [];
-let phase   = 0;
-let beatEnv = 0;
-
-let bpm          = 72;
-let beatInterval = 60000 / 72;
-let speed        = 0;
-let usingReal    = false;
-let realBpm      = 0;
-
-let signalStrength = 0;
-let lastPacketTime = performance.now();
-
-let pickingAnchor = false;
-
-const sparks  = [];
-const ripples = [];
-const marks   = [];
-
-/* ==========================================================
-   ================ 离屏 2D 背景画布 ========================
-========================================================== */
+/* 离屏 2D 背景画布 */
 const bgCanvas = document.createElement('canvas');
-bgCanvas.width  = CW;
-bgCanvas.height = CH;
 const bgCtx = bgCanvas.getContext('2d', { alpha: false });
 
 /* ==========================================================
-   ================ WebGL2 初始化 ===========================
+   WebGL2 初始化
 ========================================================== */
 const gl = canvas.getContext('webgl2', {
   alpha: false,
@@ -114,7 +27,7 @@ const gl = canvas.getContext('webgl2', {
 });
 
 if (!gl) {
-  alert('当前浏览器不支持 WebGL2，请使用 Chrome 或 Edge。');
+  document.body.innerHTML = '<div style="color:#fff;padding:40px;font-family:monospace">当前浏览器不支持 WebGL2，请使用 Chrome 或 Edge。</div>';
   return;
 }
 
@@ -122,10 +35,8 @@ gl.getExtension('EXT_color_buffer_float');
 gl.getExtension('OES_texture_float_linear');
 
 /* ==========================================================
-   ================ 着色器 ==================================
+   着色器源码
 ========================================================== */
-
-/* ---- 全屏四边形顶点着色器 ---- */
 const QUAD_VS = `#version 300 es
 in vec2 aPos;
 out vec2 vUV;
@@ -134,7 +45,6 @@ void main() {
   gl_Position = vec4(aPos, 0.0, 1.0);
 }`;
 
-/* ---- 背景纹理直接拷贝 ---- */
 const COPY_FS = `#version 300 es
 precision highp float;
 in vec2 vUV;
@@ -144,19 +54,16 @@ void main() {
   outColor = texture(uTex, vUV);
 }`;
 
-/* ---- 9-tap 高斯模糊（可分离） ---- */
 const BLUR_FS = `#version 300 es
 precision highp float;
 in vec2 vUV;
 out vec4 outColor;
 uniform sampler2D uTex;
 uniform vec2 uTexel;
-uniform vec2 uDir;      // (1,0) 或 (0,1)
+uniform vec2 uDir;
 uniform float uRadius;
-
 void main() {
   vec2 off = uTexel * uDir * uRadius;
-  // 双线性 5-tap 近似高斯
   vec4 c = texture(uTex, vUV) * 0.2270270270;
   c += (texture(uTex, vUV + off * 1.3846153846) +
         texture(uTex, vUV - off * 1.3846153846)) * 0.3162162162;
@@ -165,59 +72,43 @@ void main() {
   outColor = c;
 }`;
 
-/* ---- 主玻璃着色器 ---- */
 const GLASS_FS = `#version 300 es
 precision highp float;
 
 in vec2 vUV;
 out vec4 outColor;
 
-/* 背景纹理（不同模糊级） */
 uniform sampler2D uFaceTex;
 uniform sampler2D uInnerTex;
 uniform sampler2D uOuterTex;
 
-/* 分辨率与宽高比 */
 uniform vec2  uResolution;
 uniform float uAspect;
 
-/* 玻璃形状 */
-uniform vec2  uGlassCenter;      // corrected 坐标下的中心
-uniform vec2  uGlassHalfSize;    // corrected 坐标下的半尺寸
-uniform float uGlassRadius;      // 圆角半径
+uniform vec2  uGlassCenter;
+uniform vec2  uGlassHalfSize;
+uniform float uGlassRadius;
 
-/* 玻璃光学参数 */
 uniform float uGlassThickness;
 uniform float uNormalTransition;
 uniform float uIOR;
 uniform float uDispersion;
 uniform float uBackgroundDistance;
 uniform float uRoughness;
-uniform vec2  uOpticalCenter;    // Face 放大的光心
+uniform vec2  uOpticalCenter;
 uniform float uTime;
 
 const float PI = 3.14159265359;
 
-/* ===================================================
-   工具函数
-================================================== */
 float quintic(float t) {
   return t * t * t * (t * (t * 6.0 - 15.0) + 10.0);
 }
 
-/* 圆角矩形 SDF */
 float sdRoundRect(vec2 p, vec2 halfSize, float radius) {
   vec2 q = abs(p) - halfSize + radius;
   return min(max(q.x, q.y), 0.0) + length(max(q, 0.0)) - radius;
 }
 
-/* 多项式 smooth-min */
-float smin(float a, float b, float k) {
-  float h = clamp(0.5 + 0.5 * (b - a) / k, 0.0, 1.0);
-  return mix(b, a, h) - k * h * (1.0 - h);
-}
-
-/* 计算高度（低噪声 SDF） */
 float glassSurfaceSdf(vec2 p) {
   return sdRoundRect(p, uGlassHalfSize, uGlassRadius);
 }
@@ -230,11 +121,9 @@ float heightAt(vec2 p) {
   return uGlassThickness * quintic(t);
 }
 
-/* 高度场 + 法线（差分） */
 vec3 normalAt(vec2 p) {
   float stepSize = clamp(uNormalTransition * 0.13, 0.003, 0.012);
 
-  /* X 方向需要 aspect 矫正 */
   float hL = heightAt(p - vec2(stepSize / uAspect, 0.0));
   float hR = heightAt(p + vec2(stepSize / uAspect, 0.0));
   float hD = heightAt(p - vec2(0.0, stepSize));
@@ -247,9 +136,6 @@ vec3 normalAt(vec2 p) {
   return normalize(vec3(-grad, 1.0));
 }
 
-/* ===================================================
-   GGX 高光
-================================================== */
 float D_GGX(float NoH, float a) {
   float a2 = a * a;
   float d = NoH * NoH * (a2 - 1.0) + 1.0;
@@ -267,103 +153,53 @@ vec3 F_Schlick(float u, vec3 f0) {
   return f0 + (1.0 - f0) * pow(clamp(1.0 - u, 0.0, 1.0), 5.0);
 }
 
-/* ===================================================
-   折射辅助：安全 refract（避免 NaN）
-================================================== */
 vec3 safeRefract(vec3 I, vec3 N, float eta) {
   vec3 R = refract(I, N, eta);
-  if (dot(R, R) < 1e-6) {
-    // 全反射或零向量 → 返回反射方向
-    return reflect(I, N);
-  }
+  if (dot(R, R) < 1e-6) return reflect(I, N);
   return R;
 }
 
-/* ===================================================
-   主函数
-================================================== */
 void main() {
-  /* ---- 宽高比矫正 ---- */
   vec2 uv = vUV;
   vec2 p = (uv - 0.5) * vec2(uAspect, 1.0);
 
-  /* ===========================================
-     1. 玻璃 SDF 与基础遮罩
-  =========================================== */
   vec2 localP = p - uGlassCenter;
 
   float sdf = glassSurfaceSdf(localP);
-  float sdfNoisy = sdf;   /* 用于遮罩，带 fwidth 抗锯齿 */
-
-  /* 用 fwidth 建抗锯齿宽度 */
   float aa = fwidth(sdf) * 0.75;
-  float glassMask = 1.0 - smoothstep(-aa, aa, sdfNoisy);
+  float glassMask = 1.0 - smoothstep(-aa, aa, sdf);
   if (glassMask < 0.001) { discard; }
 
-  /* ===========================================
-     2. 高度场与法线（低噪声 SDF）
-  =========================================== */
   vec3 normal = normalAt(localP);
 
-  /* 中心区域强制 (0,0,1) */
   float interior = max(-sdf, 0.0);
   float bevel = max(uNormalTransition * 0.82, 0.0001);
   float t = clamp(interior / bevel, 0.0, 1.0);
   float height = uGlassThickness * quintic(t);
 
-  /* 中心区域 normal 稳定 */
   float centerZone = smoothstep(0.6, 0.95, t);
   normal = normalize(mix(normal, vec3(0.0, 0.0, 1.0), centerZone));
 
-  /* ===========================================
-     3. 三路采样坐标
-  =========================================== */
-
-  /* 视线 incident */
   vec3 incident = vec3(0.0, 0.0, -1.0);
-
-  /* 前表面点（corrected 坐标 + 高度） */
-  vec3 P0 = vec3(localP, height);
-
-  /* 前表面折射 */
   float eta = 1.0 / uIOR;
   vec3 insideRay = safeRefract(incident, normal, eta);
 
-  /* 沿内部光程推进到背面（背面 z = 0） */
   float glassPath = height / max(-insideRay.z, 0.025);
-  vec3 P1 = vec3(
-    localP.x + insideRay.x * glassPath,
-    localP.y + insideRay.y * glassPath,
-    0.0
-  );
 
-  /* 背面折射（玻璃 → 空气，eta = IOR） */
   vec3 backNormal = vec3(0.0, 0.0, 1.0);
 
-  /* 用高度差驱动边缘方向 */
-  float sdfRimGrad = clamp(-sdf / uNormalTransition, -1.0, 1.0);
-  vec3 edgeDirection = normalize(vec3(
-    normal.x,
-    normal.y,
-    0.0
-  ) + vec3(0.0001, 0.0001, 0.0));
+  vec3 edgeDirection = normalize(vec3(normal.x, normal.y, 0.0) + vec3(0.0001, 0.0001, 0.0));
 
-  /* 边缘位移量 */
   float rimDisplacement = uGlassThickness * 0.55 * (1.0 - t);
 
-  /* ===========================================
-     4. RGB 三路色散追踪
-  =========================================== */
   float iorR = uIOR - uDispersion;
   float iorG = uIOR;
   float iorB = uIOR + uDispersion;
 
-  /* 三路分别前向折射 */
   vec3 insideR = safeRefract(incident, normal, 1.0 / iorR);
   vec3 insideG = safeRefract(incident, normal, 1.0 / iorG);
   vec3 insideB = safeRefract(incident, normal, 1.0 / iorB);
 
-  /* 推进 */
   float pathR = height / max(-insideR.z, 0.025);
   float pathG = height / max(-insideG.z, 0.025);
   float pathB = height / max(-insideB.z, 0.025);
@@ -372,12 +208,10 @@ void main() {
   vec3 PG = vec3(localP.x + insideG.x * pathG, localP.y + insideG.y * pathG, 0.0);
   vec3 PB = vec3(localP.x + insideB.x * pathB, localP.y + insideB.y * pathB, 0.0);
 
-  /* 背面折射：玻璃 → 空气 */
   vec3 outR = safeRefract(insideR, backNormal, iorR);
   vec3 outG = safeRefract(insideG, backNormal, iorG);
   vec3 outB = safeRefract(insideB, backNormal, iorB);
 
-  /* 与背景平面 z = -uBackgroundDistance 求交 */
   float tR = -uBackgroundDistance / min(outR.z, -0.001);
   float tG = -uBackgroundDistance / min(outG.z, -0.001);
   float tB = -uBackgroundDistance / min(outB.z, -0.001);
@@ -386,57 +220,35 @@ void main() {
   vec3 hitG = PG + outG * tG;
   vec3 hitB = PB + outB * tB;
 
-  /* 将 corrected 坐标还原回 uv */
   vec2 bgUVR = hitR.xy / vec2(uAspect, 1.0) + 0.5;
   vec2 bgUVG = hitG.xy / vec2(uAspect, 1.0) + 0.5;
   vec2 bgUVB = hitB.xy / vec2(uAspect, 1.0) + 0.5;
 
-  /* ===========================================
-     5. Face / Inner / Outer 三路坐标
-  =========================================== */
-
-  /* Face：从光心轻微放大，清晰 */
   vec2 faceUV = uOpticalCenter + (uv - uOpticalCenter) * 0.975;
 
-  /* Inner：主要压缩/拉伸 */
   vec2 innerUVR = bgUVR - edgeDirection.xy * rimDisplacement;
   vec2 innerUVG = bgUVG - edgeDirection.xy * rimDisplacement;
   vec2 innerUVB = bgUVB - edgeDirection.xy * rimDisplacement;
 
-  /* Outer：反向、更大位移，可读玻璃外部背景 */
   vec2 outerUVR = bgUVR + edgeDirection.xy * rimDisplacement * 1.28;
   vec2 outerUVG = bgUVG + edgeDirection.xy * rimDisplacement * 1.28;
   vec2 outerUVB = bgUVB + edgeDirection.xy * rimDisplacement * 1.28;
 
-  /* ===========================================
-     6. 三路采样
-  =========================================== */
-
-  /* Face：较高 LOD（清晰）、无强色散 */
   vec3 faceCol = texture(uFaceTex, faceUV).rgb;
 
-  /* Inner：低 LOD（保持边缘清晰） */
   vec3 innerCol = vec3(
     texture(uInnerTex, innerUVR).r,
     texture(uInnerTex, innerUVG).g,
     texture(uInnerTex, innerUVB).b
   );
 
-  /* Outer：更高 LOD（柔和翻卷） */
   vec3 outerCol = vec3(
     texture(uOuterTex, outerUVR).r,
     texture(uOuterTex, outerUVG).g,
     texture(uOuterTex, outerUVB).b
   );
 
-  /* ===========================================
-     7. 三路权重合成
-  =========================================== */
-
-  /* 倒角权重：外半段参与 Inner/Outer，中心只有 Face */
   float outerBevelSupport = smoothstep(0.0, 1.0, 1.0 - t);
-
-  /* 曲率权重 */
   float curvature = 1.0 - normal.z;
   float curvWeight = smoothstep(0.0, 0.35, curvature);
 
@@ -444,7 +256,6 @@ void main() {
   float innerWeight = outerBevelSupport * (0.55 + curvWeight * 0.45);
   float outerWeight = outerBevelSupport * 0.45;
 
-  /* 归一化 */
   float wsum = faceWeight + innerWeight + outerWeight + 1e-6;
   faceWeight  /= wsum;
   innerWeight /= wsum;
@@ -452,34 +263,20 @@ void main() {
 
   vec3 refracted = faceCol * faceWeight + innerCol * innerWeight + outerCol * outerWeight;
 
-  /* ===========================================
-     8. 玻璃外部柔和阴影 + 染色
-  =========================================== */
-  /* 外部轻微阴影（贴近边缘） */
   float outerShadow = smoothstep(0.0, 0.4, -sdf / uNormalTransition) * 0.18;
   refracted *= (1.0 - outerShadow);
-
-  /* 白色染色（很淡，避免塑料感） */
   refracted = mix(refracted, refracted * 0.96 + vec3(0.04), 0.22);
 
-  /* ===========================================
-     9. GGX 镜面反射
-  =========================================== */
-
-  /* F0 */
   float f0scalar = (uIOR - 1.0) / (uIOR + 1.0);
   vec3 F0 = vec3(f0scalar * f0scalar);
 
   float rough = clamp(uRoughness, 0.04, 1.0);
   float a = rough * rough;
 
-  /* 视线方向 */
   vec3 V = vec3(0.0, 0.0, 1.0);
 
-  /* 只在外半段做直接高光 */
   float directWeight = curvWeight * outerBevelSupport;
 
-  /* 四点掠射柔光阵列（缓慢绕相机旋转） */
   float ang = uTime * 0.08;
   float ca = cos(ang), sa = sin(ang);
 
@@ -488,10 +285,10 @@ void main() {
   vec3 L2 = normalize(vec3( 0.91 * ca + 0.95 * sa, -0.95 * ca + 0.91 * sa,  0.30));
   vec3 L3 = normalize(vec3(-0.96 * ca + 0.90 * sa, -0.90 * ca - 0.96 * sa,  0.38));
 
-  vec3 lightColor0 = vec3(0.85, 0.92, 1.00);  /* 冷 */
-  vec3 lightColor1 = vec3(1.00, 0.94, 0.86);  /* 暖 */
-  vec3 lightColor2 = vec3(0.88, 0.95, 1.00);  /* 冷 */
-  vec3 lightColor3 = vec3(1.00, 0.92, 0.82);  /* 暖 */
+  vec3 lightColor0 = vec3(0.85, 0.92, 1.00);
+  vec3 lightColor1 = vec3(1.00, 0.94, 0.86);
+  vec3 lightColor2 = vec3(0.88, 0.95, 1.00);
+  vec3 lightColor3 = vec3(1.00, 0.92, 0.82);
 
   vec3 lightDirs[4];
   vec3 lightCols[4];
@@ -520,26 +317,20 @@ void main() {
 
   specular *= directWeight * 2.4;
 
-  /* 环境 Fresnel（边缘提亮） */
   float NoV = max(dot(normal, V), 1e-4);
   vec3 envFres = F_Schlick(NoV, F0) * 0.35 * (0.35 + 0.65 * outerBevelSupport);
   specular += envFres * 0.6;
 
-  /* ===========================================
-     10. 最终合成
-  =========================================== */
   vec3 finalCol = refracted + specular;
 
-  /* 边缘亮度提升（能量守恒的界面反光） */
   float edgeLift = smoothstep(0.4, 1.0, 1.0 - t) * 0.12;
   finalCol += vec3(edgeLift);
 
-  /* 抗锯齿输出 */
   outColor = vec4(finalCol, glassMask);
 }`;
 
 /* ==========================================================
-   ================ WebGL 程序编译 ==========================
+   编译工具
 ========================================================== */
 function compileShader(type, src) {
   const s = gl.createShader(type);
@@ -565,12 +356,12 @@ function createProgram(vsSrc, fsSrc) {
   return p;
 }
 
-const copyProgram = createProgram(QUAD_VS, COPY_FS);
-const blurProgram = createProgram(QUAD_VS, BLUR_FS);
+const copyProgram  = createProgram(QUAD_VS, COPY_FS);
+const blurProgram  = createProgram(QUAD_VS, BLUR_FS);
 const glassProgram = createProgram(QUAD_VS, GLASS_FS);
 
 /* ==========================================================
-   ================ 全屏四边形 VAO ==========================
+   全屏四边形 VAO
 ========================================================== */
 const quadVAO = gl.createVertexArray();
 gl.bindVertexArray(quadVAO);
@@ -588,12 +379,12 @@ gl.vertexAttribPointer(0, 2, gl.FLOAT, false, 0, 0);
 gl.bindVertexArray(null);
 
 /* ==========================================================
-   ================ 渲染目标 ================================
+   RT 管理
 ========================================================== */
-function createRT(w, h, format) {
+function createRT(w, h) {
   const tex = gl.createTexture();
   gl.bindTexture(gl.TEXTURE_2D, tex);
-  gl.texImage2D(gl.TEXTURE_2D, 0, format, w, h, 0, format, gl.UNSIGNED_BYTE, null);
+  gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, w, h, 0, gl.RGBA, gl.UNSIGNED_BYTE, null);
   gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
   gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
   gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
@@ -602,42 +393,134 @@ function createRT(w, h, format) {
   const fbo = gl.createFramebuffer();
   gl.bindFramebuffer(gl.FRAMEBUFFER, fbo);
   gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, tex, 0);
-
   gl.bindFramebuffer(gl.FRAMEBUFFER, null);
   gl.bindTexture(gl.TEXTURE_2D, null);
 
   return { tex, fbo, w, h };
 }
 
-/* paintComposeRT —— 背景源纹理 */
-const paintComposeRT = createRT(CW, CH, gl.RGBA);
-
-/* 模糊金字塔（5 级） */
-const pyramid = [];
-const PYRAMID_LEVELS = 5;
-let pw = CW, ph = CH;
-for (let i = 0; i < PYRAMID_LEVELS; i++) {
-  pw = Math.max(2, pw >> 1);
-  ph = Math.max(2, ph >> 1);
-  pyramid.push({
-    a: createRT(pw, ph, gl.RGBA),
-    b: createRT(pw, ph, gl.RGBA),
-    w: pw,
-    h: ph
-  });
+function destroyRT(rt) {
+  if (!rt) return;
+  gl.deleteFramebuffer(rt.fbo);
+  gl.deleteTexture(rt.tex);
 }
 
-/* 背景纹理上传用 */
-const bgTexture = gl.createTexture();
-gl.bindTexture(gl.TEXTURE_2D, bgTexture);
-gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
-gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
-gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
-gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
-gl.bindTexture(gl.TEXTURE_2D, null);
+const PYRAMID_LEVELS = 5;
+
+let paintComposeRT = null;
+const pyramid = [];
+
+function rebuildRenderTargets() {
+  destroyRT(paintComposeRT);
+  for (let i = 0; i < pyramid.length; i++) {
+    destroyRT(pyramid[i].a);
+    destroyRT(pyramid[i].b);
+  }
+  pyramid.length = 0;
+
+  paintComposeRT = createRT(CW, CH);
+
+  let pw = CW, ph = CH;
+  for (let i = 0; i < PYRAMID_LEVELS; i++) {
+    pw = Math.max(2, pw >> 1);
+    ph = Math.max(2, ph >> 1);
+    pyramid.push({
+      a: createRT(pw, ph),
+      b: createRT(pw, ph),
+      w: pw,
+      h: ph
+    });
+  }
+}
 
 /* ==========================================================
-   ================ 通用渲染辅助 ============================
+   Canvas 尺寸管理 —— 跟随视口
+========================================================== */
+function resizeCanvas() {
+  DPR = Math.min(window.devicePixelRatio || 1, 2);
+
+  const vw = window.innerWidth;
+  const vh = window.innerHeight;
+
+  CW = Math.max(2, Math.round(vw * DPR));
+  CH = Math.max(2, Math.round(vh * DPR));
+  ASPECT = vw / vh;
+
+  canvas.width  = CW;
+  canvas.height = CH;
+  canvas.style.width  = vw + 'px';
+  canvas.style.height = vh + 'px';
+
+  /* 2D 背景画布跟随 */
+  bgCanvas.width  = CW;
+  bgCanvas.height = CH;
+
+  /* 背景布局参数按新高度重算 */
+  BG_BASEY = CH * 0.55;
+  BG_A     = Math.min(CH * 0.14, 260);
+
+  /* 重建 RT 和金字塔 */
+  rebuildRenderTargets();
+}
+
+window.addEventListener('resize', resizeCanvas);
+window.addEventListener('orientationchange', () => setTimeout(resizeCanvas, 120));
+
+/* ==========================================================
+   设置
+========================================================== */
+const settings = {
+  glass:          true,
+  glassThickness: 0.045,
+  ior:            1.46,
+  dispersion:     0.004,
+  glassY:         55,
+  glassH:         14,
+  particles:      true,
+  density:        1.6,
+  particleColor:  '#ffffff',
+  sway:           'free',
+  fullDist:       false,
+  anchor:         'rpeak',
+  customAnchor:   { x: 0.5, y: 0.5 },
+  radiusPct:      60,
+  magnify:        true,
+  mark:           true,
+  signal:         true,
+  sigStrength:    true
+};
+
+/* ==========================================================
+   ECG / 粒子 状态
+========================================================== */
+const SAMPLE_MS = 5;
+const PX_PER_MS = 0.5;
+const MAX_SPARKS = 6000;
+
+let simTime = 0;
+let nextSampleTime = 0;
+
+let samples = [];
+let phase   = 0;
+let beatEnv = 0;
+
+let bpm          = 72;
+let beatInterval = 60000 / 72;
+let speed        = 0;
+let usingReal    = false;
+let realBpm      = 0;
+
+let signalStrength = 0;
+let lastPacketTime = performance.now();
+
+let pickingAnchor = false;
+
+const sparks  = [];
+const ripples = [];
+const marks   = [];
+
+/* ==========================================================
+   渲染辅助
 ========================================================== */
 function bindRT(rt) {
   gl.bindFramebuffer(gl.FRAMEBUFFER, rt ? rt.fbo : null);
@@ -652,10 +535,8 @@ function drawQuad() {
 }
 
 /* ==========================================================
-   ================ 背景 2D 渲染 ============================
+   背景 2D 渲染
 ========================================================== */
-
-/* ---------- 心电波形 ---------- */
 function ecgAt(t) {
   let v = 0;
   v += 0.090 * Math.exp(-Math.pow((t - 0.120) / 0.0250, 2));
@@ -666,13 +547,9 @@ function ecgAt(t) {
   return v;
 }
 
-/* 背景 2D 布局参数（相对于 1080×1920） */
-const BG_BASEY = CH * 0.55;
-const BG_A     = 260;
-
-/* ---------- 网格 ---------- */
 function bgDrawGrid() {
-  const minor = 18, major = 90;
+  const minor = Math.max(8, Math.round(CH / 100));
+  const major = minor * 5;
   bgCtx.lineWidth = 1;
 
   bgCtx.strokeStyle = 'rgba(255,255,255,0.030)';
@@ -694,7 +571,6 @@ function bgDrawGrid() {
   bgCtx.stroke();
 }
 
-/* ---------- ECG 波形 ---------- */
 function bgDrawWave() {
   const n = samples.length;
   if (n < 2) return;
@@ -739,7 +615,6 @@ function bgDrawWave() {
   bgCtx.globalAlpha = 1;
 }
 
-/* ---------- 打点标记 ---------- */
 function bgDrawMarks() {
   if (marks.length === 0) return;
 
@@ -774,7 +649,6 @@ function bgDrawMarks() {
   bgCtx.restore();
 }
 
-/* ---------- 粒子 ---------- */
 function bgDrawSparks(dtSec) {
   bgCtx.save();
   bgCtx.globalCompositeOperation = 'lighter';
@@ -803,7 +677,6 @@ function bgDrawSparks(dtSec) {
       tw = 0.22 + 0.78 * (0.5 + 0.5 * s);
     }
 
-    /* 拖尾 */
     if (p.trail && p.trail.length) {
       p.trail.push(p.x, p.y);
       while (p.trail.length > p.maxTrail * 2) {
@@ -847,7 +720,6 @@ function bgDrawSparks(dtSec) {
     }
   }
 
-  /* 涟漪 */
   for (let i = ripples.length - 1; i >= 0; i--) {
     const rp = ripples[i];
     rp.life -= dtSec * rp.decay;
@@ -869,7 +741,6 @@ function bgDrawSparks(dtSec) {
   bgCtx.globalAlpha = 1;
 }
 
-/* ---------- 局部放大窗口 ---------- */
 function bgRoundRect(c, x, y, w, h, r) {
   c.beginPath();
   c.moveTo(x + r, y);
@@ -884,8 +755,8 @@ function bgDrawMagnify() {
   if (!settings.magnify) return;
   if (samples.length < 10) return;
 
-  const boxW = 360;
-  const boxH = 220;
+  const boxW = Math.min(CW * 0.36, 380);
+  const boxH = boxW * 0.62;
   const bx = CW - boxW - 30;
   const by = CH - boxH - 380;
 
@@ -951,9 +822,7 @@ function bgDrawMagnify() {
   bgCtx.restore();
 }
 
-/* ---------- 背景整体渲染 ---------- */
 function bgRender(dtSec) {
-  /* 底色 */
   bgCtx.fillStyle = '#000';
   bgCtx.fillRect(0, 0, CW, CH);
 
@@ -965,10 +834,8 @@ function bgRender(dtSec) {
 }
 
 /* ==========================================================
-   ================ 模糊金字塔生成 ==========================
+   模糊金字塔
 ========================================================== */
-let blurH, blurV, blurTexel, blurRadius, blurDir;
-
 function runBlurPass(srcTex, dstRT, dirX, dirY, radius) {
   bindRT(dstRT);
   gl.useProgram(blurProgram);
@@ -989,18 +856,14 @@ function updatePyramid() {
 
   for (let i = 0; i < PYRAMID_LEVELS; i++) {
     const lv = pyramid[i];
-
-    /* 水平 pass */
     runBlurPass(srcTex, lv.a, 1, 0, 1.0);
-    /* 垂直 pass */
     runBlurPass(lv.a.tex, lv.b, 0, 1, 1.0);
-
     srcTex = lv.b.tex;
   }
 }
 
 /* ==========================================================
-   ================ 背景上传为纹理 ==========================
+   上传背景
 ========================================================== */
 function uploadBackground() {
   gl.bindTexture(gl.TEXTURE_2D, paintComposeRT.tex);
@@ -1013,7 +876,7 @@ function uploadBackground() {
 }
 
 /* ==========================================================
-   ================ 玻璃渲染 ================================
+   玻璃渲染
 ========================================================== */
 const glassUniforms = {
   uFaceTex:            gl.getUniformLocation(glassProgram, 'uFaceTex'),
@@ -1041,7 +904,6 @@ function renderGlass(timeSec) {
   gl.clear(gl.COLOR_BUFFER_BIT);
 
   if (!settings.glass) {
-    /* 关闭液态玻璃：直接显示背景 */
     gl.useProgram(copyProgram);
     gl.activeTexture(gl.TEXTURE0);
     gl.bindTexture(gl.TEXTURE_2D, paintComposeRT.tex);
@@ -1054,10 +916,10 @@ function renderGlass(timeSec) {
   gl.enable(gl.BLEND);
   gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
 
-  /* 玻璃在 corrected 坐标下的中心与尺寸 */
-  const glassCenterY = (settings.glassY / 100 - 0.5) * 1.0;   /* 竖屏 y: -0.5 到 0.5 */
+  /* 玻璃在 corrected 坐标下的中心与尺寸：始终在屏幕内 */
+  const glassCenterY = (settings.glassY / 100 - 0.5);
   const glassHalfY   = (settings.glassH / 100) * 0.5;
-  const glassHalfX   = 0.5 - 0.03;                             /* 略小于屏幕宽 */
+  const glassHalfX   = 0.5 - 0.03;
   const glassRadius  = Math.min(glassHalfY, glassHalfX) * 0.42;
   const normalTransition = Math.max(glassHalfY * 0.55, 0.02);
 
@@ -1066,11 +928,11 @@ function renderGlass(timeSec) {
   gl.uniform1i(glassUniforms.uOuterTex, 2);
 
   gl.activeTexture(gl.TEXTURE0);
-  gl.bindTexture(gl.TEXTURE_2D, pyramid[0].b.tex);   /* Face 用 level 1（轻微模糊） */
+  gl.bindTexture(gl.TEXTURE_2D, pyramid[0].b.tex);
   gl.activeTexture(gl.TEXTURE1);
-  gl.bindTexture(gl.TEXTURE_2D, pyramid[1].b.tex);   /* Inner 用 level 2 */
+  gl.bindTexture(gl.TEXTURE_2D, pyramid[1].b.tex);
   gl.activeTexture(gl.TEXTURE2);
-  gl.bindTexture(gl.TEXTURE_2D, pyramid[3].b.tex);   /* Outer 用 level 4（最模糊） */
+  gl.bindTexture(gl.TEXTURE_2D, pyramid[3].b.tex);
 
   gl.uniform2f(glassUniforms.uResolution, CW, CH);
   gl.uniform1f(glassUniforms.uAspect, ASPECT);
@@ -1092,7 +954,7 @@ function renderGlass(timeSec) {
 }
 
 /* ==========================================================
-   ================ ECG 与粒子更新 ==========================
+   粒子/心跳
 ========================================================== */
 function pickVelocity(spd) {
   const s = settings.sway;
@@ -1222,7 +1084,7 @@ function onBeat(beatTime) {
 }
 
 /* ==========================================================
-   ================ 主更新 ==================================
+   更新
 ========================================================== */
 function update(dt) {
   let target;
@@ -1290,7 +1152,7 @@ function update(dt) {
 }
 
 /* ==========================================================
-   ================ 信号强度 UI =============================
+   信号强度 UI
 ========================================================== */
 const sigBarEls = document.querySelectorAll('#sigStrengthRow .sigBars i');
 const sigPctEl  = document.getElementById('sigPct');
@@ -1306,7 +1168,7 @@ function updateSigStrengthUI() {
 }
 
 /* ==========================================================
-   ================ 渲染循环 ================================
+   主循环
 ========================================================== */
 let lastT = 0;
 
@@ -1320,26 +1182,17 @@ function loop(now) {
   const dtSec = dt / 1000;
   const timeSec = now / 1000;
 
-  /* 1. 更新业务状态 */
   update(dt);
-
-  /* 2. Layer 1：Background 渲染到离屏 2D 画布 */
   bgRender(dtSec);
-
-  /* 3. 上传为纹理 */
   uploadBackground();
-
-  /* 4. 生成模糊金字塔 */
   updatePyramid();
-
-  /* 5. Layer 2：Glass 渲染到主 canvas */
   renderGlass(timeSec);
 
   requestAnimationFrame(loop);
 }
 
 /* ==========================================================
-   ================ DOM 引用 ================================
+   DOM 引用
 ========================================================== */
 const btnConn  = document.getElementById('btnConnect');
 const statusEl = document.getElementById('status');
@@ -1397,7 +1250,7 @@ const colorRow       = document.getElementById('colorRow');
 const sigStrengthRow = document.getElementById('sigStrengthRow');
 
 /* ==========================================================
-   ================ 模态面板 ================================
+   模态面板
 ========================================================== */
 function openModal(el)  { el.classList.add('show'); }
 function closeModal(el) { el.classList.remove('show'); }
@@ -1433,7 +1286,7 @@ showHelp.addEventListener('click', () => {
 });
 
 /* ==========================================================
-   ================ 拾取锚点 ================================
+   拾取锚点
 ========================================================== */
 function enterPicking() {
   pickingAnchor = true;
@@ -1478,7 +1331,7 @@ function updateDistUI() {
 }
 
 /* ==========================================================
-   ================ 设置绑定 ================================
+   设置绑定
 ========================================================== */
 setGlass.checked       = settings.glass;
 setThickness.value     = String(Math.round(settings.glassThickness * 1000));
@@ -1594,7 +1447,7 @@ colorRow.addEventListener('click', (e) => {
 clearMarks.addEventListener('click', () => { marks.length = 0; });
 
 /* ==========================================================
-   ================ QQ 群复制 ===============================
+   QQ 群复制
 ========================================================== */
 function fallbackCopy(text, cb) {
   try {
@@ -1631,14 +1484,17 @@ if (qqLink) {
 }
 
 /* ==========================================================
-   ================ Canvas 事件（拾取 / 打点） ==============
+   Canvas 事件（拾取 / 打点）—— 坐标按视口映射
 ========================================================== */
-canvas.addEventListener('click', (e) => {
+function getCanvasCoord(clientX, clientY) {
   const rect = canvas.getBoundingClientRect();
+  const x = (clientX - rect.left) / rect.width  * CW;
+  const y = (clientY - rect.top)  / rect.height * CH;
+  return { x, y };
+}
 
-  /* 屏幕坐标 → canvas 内部分辨率 */
-  const cx = (e.clientX - rect.left) / rect.width  * CW;
-  const cy = (e.clientY - rect.top)  / rect.height * CH;
+canvas.addEventListener('click', (e) => {
+  const { x: cx, y: cy } = getCanvasCoord(e.clientX, e.clientY);
 
   if (pickingAnchor) {
     settings.customAnchor = { x: cx / CW, y: cy / CH };
@@ -1648,12 +1504,11 @@ canvas.addEventListener('click', (e) => {
   }
 
   if (!settings.mark) return;
-
   if (cy < BG_BASEY - BG_A * 1.7 || cy > BG_BASEY + BG_A * 1.7) return;
 
-  /* 排除局部放大窗口 */
   if (settings.magnify) {
-    const boxW = 360, boxH = 220;
+    const boxW = Math.min(CW * 0.36, 380);
+    const boxH = boxW * 0.62;
     const bx = CW - boxW - 30;
     const by = CH - boxH - 380;
     if (cx >= bx && cx <= bx + boxW && cy >= by && cy <= by + boxH) return;
@@ -1662,8 +1517,36 @@ canvas.addEventListener('click', (e) => {
   marks.push({ t: simTime - (CW - cx) / PX_PER_MS });
 });
 
+/* 移动端触摸兼容 */
+canvas.addEventListener('touchstart', (e) => {
+  if (e.touches.length !== 1) return;
+  const t = e.touches[0];
+  const { x: cx, y: cy } = getCanvasCoord(t.clientX, t.clientY);
+
+  if (pickingAnchor) {
+    e.preventDefault();
+    settings.customAnchor = { x: cx / CW, y: cy / CH };
+    updateCustomAnchorHint();
+    exitPicking();
+    return;
+  }
+
+  if (!settings.mark) return;
+  if (cy < BG_BASEY - BG_A * 1.7 || cy > BG_BASEY + BG_A * 1.7) return;
+
+  if (settings.magnify) {
+    const boxW = Math.min(CW * 0.36, 380);
+    const boxH = boxW * 0.62;
+    const bx = CW - boxW - 30;
+    const by = CH - boxH - 380;
+    if (cx >= bx && cx <= bx + boxW && cy >= by && cy <= by + boxH) return;
+  }
+
+  marks.push({ t: simTime - (CW - cx) / PX_PER_MS });
+}, { passive: false });
+
 /* ==========================================================
-   ================ 蓝牙心率 ================================
+   蓝牙心率
 ========================================================== */
 function setStatus(text, cls) {
   statusEl.textContent = text;
@@ -1756,7 +1639,7 @@ speedEl.addEventListener('input', () => {
 });
 
 /* ==========================================================
-   ================ 初始化 ==================================
+   初始化
 ========================================================== */
 function init() {
   if (!navigator.bluetooth) {
@@ -1769,6 +1652,9 @@ function init() {
 
   speedVal.textContent = speed.toFixed(1) + ' km/h';
   glassParamsRow.style.opacity = settings.glass ? '1' : '0.4';
+
+  /* 首次设置尺寸并建立 RT */
+  resizeCanvas();
 
   nextSampleTime = 0;
   simTime = 0;
