@@ -2,22 +2,19 @@
 'use strict';
 
 /* ==========================================================
-   视口尺寸 —— 跟随视口，不锁定分辨率
+   视口尺寸
 ========================================================== */
 const canvas = document.getElementById('c');
 
 let CW = 1, CH = 1, ASPECT = 1, DPR = 1;
-
-/* 背景布局参数（随 resize 重新计算） */
 let BG_BASEY = 0;
 let BG_A = 0;
 
-/* 离屏 2D 背景画布 */
 const bgCanvas = document.createElement('canvas');
 const bgCtx = bgCanvas.getContext('2d', { alpha: false });
 
 /* ==========================================================
-   WebGL2 初始化
+   WebGL2
 ========================================================== */
 const gl = canvas.getContext('webgl2', {
   alpha: false,
@@ -35,7 +32,7 @@ gl.getExtension('EXT_color_buffer_float');
 gl.getExtension('OES_texture_float_linear');
 
 /* ==========================================================
-   着色器源码
+   着色器
 ========================================================== */
 const QUAD_VS = `#version 300 es
 in vec2 aPos;
@@ -72,6 +69,7 @@ void main() {
   outColor = c;
 }`;
 
+/* ---- 主着色器：支持多形状 SDF ---- */
 const GLASS_FS = `#version 300 es
 precision highp float;
 
@@ -85,9 +83,11 @@ uniform sampler2D uOuterTex;
 uniform vec2  uResolution;
 uniform float uAspect;
 
-uniform vec2  uGlassCenter;
-uniform vec2  uGlassHalfSize;
-uniform float uGlassRadius;
+#define MAX_SHAPES 4
+uniform int   uShapeCount;
+uniform vec2  uShapeCenter[MAX_SHAPES];
+uniform vec2  uShapeHalfSize[MAX_SHAPES];
+uniform float uShapeRadius[MAX_SHAPES];
 
 uniform float uGlassThickness;
 uniform float uNormalTransition;
@@ -109,8 +109,22 @@ float sdRoundRect(vec2 p, vec2 halfSize, float radius) {
   return min(max(q.x, q.y), 0.0) + length(max(q, 0.0)) - radius;
 }
 
+/* polynomial smooth-min */
+float smin(float a, float b, float k) {
+  float h = clamp(0.5 + 0.5 * (b - a) / k, 0.0, 1.0);
+  return mix(b, a, h) - k * h * (1.0 - h);
+}
+
+/* 组合所有形状的 SDF */
 float glassSurfaceSdf(vec2 p) {
-  return sdRoundRect(p, uGlassHalfSize, uGlassRadius);
+  float sdf = 1e6;
+  for (int i = 0; i < MAX_SHAPES; i++) {
+    if (i >= uShapeCount) break;
+    vec2 lp = p - uShapeCenter[i];
+    float d = sdRoundRect(lp, uShapeHalfSize[i], uShapeRadius[i]);
+    sdf = smin(sdf, d, 0.008);
+  }
+  return sdf;
 }
 
 float heightAt(vec2 p) {
@@ -163,14 +177,17 @@ void main() {
   vec2 uv = vUV;
   vec2 p = (uv - 0.5) * vec2(uAspect, 1.0);
 
-  vec2 localP = p - uGlassCenter;
-
-  float sdf = glassSurfaceSdf(localP);
+  float sdf = glassSurfaceSdf(p);
   float aa = fwidth(sdf) * 0.75;
   float glassMask = 1.0 - smoothstep(-aa, aa, sdf);
-  if (glassMask < 0.001) { discard; }
 
-  vec3 normal = normalAt(localP);
+  /* 玻璃外 → 直接显示原始背景 */
+  if (glassMask < 0.001) {
+    outColor = texture(uFaceTex, uv);
+    return;
+  }
+
+  vec3 normal = normalAt(p);
 
   float interior = max(-sdf, 0.0);
   float bevel = max(uNormalTransition * 0.82, 0.0001);
@@ -204,9 +221,9 @@ void main() {
   float pathG = height / max(-insideG.z, 0.025);
   float pathB = height / max(-insideB.z, 0.025);
 
-  vec3 PR = vec3(localP.x + insideR.x * pathR, localP.y + insideR.y * pathR, 0.0);
-  vec3 PG = vec3(localP.x + insideG.x * pathG, localP.y + insideG.y * pathG, 0.0);
-  vec3 PB = vec3(localP.x + insideB.x * pathB, localP.y + insideB.y * pathB, 0.0);
+  vec3 PR = vec3(p.x + insideR.x * pathR, p.y + insideR.y * pathR, 0.0);
+  vec3 PG = vec3(p.x + insideG.x * pathG, p.y + insideG.y * pathG, 0.0);
+  vec3 PB = vec3(p.x + insideB.x * pathB, p.y + insideB.y * pathB, 0.0);
 
   vec3 outR = safeRefract(insideR, backNormal, iorR);
   vec3 outG = safeRefract(insideG, backNormal, iorG);
@@ -361,7 +378,7 @@ const blurProgram  = createProgram(QUAD_VS, BLUR_FS);
 const glassProgram = createProgram(QUAD_VS, GLASS_FS);
 
 /* ==========================================================
-   全屏四边形 VAO
+   全屏四边形
 ========================================================== */
 const quadVAO = gl.createVertexArray();
 gl.bindVertexArray(quadVAO);
@@ -379,7 +396,7 @@ gl.vertexAttribPointer(0, 2, gl.FLOAT, false, 0, 0);
 gl.bindVertexArray(null);
 
 /* ==========================================================
-   RT 管理
+   RT
 ========================================================== */
 function createRT(w, h) {
   const tex = gl.createTexture();
@@ -406,7 +423,6 @@ function destroyRT(rt) {
 }
 
 const PYRAMID_LEVELS = 5;
-
 let paintComposeRT = null;
 const pyramid = [];
 
@@ -434,7 +450,7 @@ function rebuildRenderTargets() {
 }
 
 /* ==========================================================
-   Canvas 尺寸管理 —— 跟随视口
+   尺寸
 ========================================================== */
 function resizeCanvas() {
   DPR = Math.min(window.devicePixelRatio || 1, 2);
@@ -451,15 +467,12 @@ function resizeCanvas() {
   canvas.style.width  = vw + 'px';
   canvas.style.height = vh + 'px';
 
-  /* 2D 背景画布跟随 */
   bgCanvas.width  = CW;
   bgCanvas.height = CH;
 
-  /* 背景布局参数按新高度重算 */
   BG_BASEY = CH * 0.55;
   BG_A     = Math.min(CH * 0.14, 260);
 
-  /* 重建 RT 和金字塔 */
   rebuildRenderTargets();
 }
 
@@ -471,11 +484,9 @@ window.addEventListener('orientationchange', () => setTimeout(resizeCanvas, 120)
 ========================================================== */
 const settings = {
   glass:          true,
-  glassThickness: 0.045,
+  glassThickness: 0.038,
   ior:            1.46,
   dispersion:     0.004,
-  glassY:         55,
-  glassH:         14,
   particles:      true,
   density:        1.6,
   particleColor:  '#ffffff',
@@ -491,7 +502,7 @@ const settings = {
 };
 
 /* ==========================================================
-   ECG / 粒子 状态
+   状态
 ========================================================== */
 const SAMPLE_MS = 5;
 const PX_PER_MS = 0.5;
@@ -535,7 +546,7 @@ function drawQuad() {
 }
 
 /* ==========================================================
-   背景 2D 渲染
+   背景渲染
 ========================================================== */
 function ecgAt(t) {
   let v = 0;
@@ -583,7 +594,6 @@ function bgDrawWave() {
     const x = CW - (simTime - s.t) * PX_PER_MS;
     if (x < -30) continue;
     if (x > CW + 30) break;
-
     const y = BG_BASEY - s.v * BG_A;
     if (!started) { path.moveTo(x, y); started = true; }
     else path.lineTo(x, y);
@@ -617,7 +627,6 @@ function bgDrawWave() {
 
 function bgDrawMarks() {
   if (marks.length === 0) return;
-
   bgCtx.save();
   for (let i = 0; i < marks.length; i++) {
     const m = marks[i];
@@ -863,9 +872,12 @@ function updatePyramid() {
 }
 
 /* ==========================================================
-   上传背景
+   上传背景（关键修复：翻转 Y）
 ========================================================== */
 function uploadBackground() {
+  /* 关键：让纹理 Y 轴与 WebGL UV 对齐，消除镜像 */
+  gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, true);
+
   gl.bindTexture(gl.TEXTURE_2D, paintComposeRT.tex);
   gl.texImage2D(
     gl.TEXTURE_2D, 0, gl.RGBA,
@@ -873,6 +885,86 @@ function uploadBackground() {
     bgCanvas
   );
   gl.bindTexture(gl.TEXTURE_2D, null);
+
+  /* 恢复默认，避免影响其他纹理上传 */
+  gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, false);
+}
+
+/* ==========================================================
+   从 DOM 读取玻璃形状
+========================================================== */
+const MAX_SHAPES = 4;
+
+/* 复用数组，避免每帧分配 */
+const shapeCenters = new Float32Array(MAX_SHAPES * 2);
+const shapeHalfSizes = new Float32Array(MAX_SHAPES * 2);
+const shapeRadii = new Float32Array(MAX_SHAPES);
+
+function collectGlassShapes() {
+  if (!settings.glass) return 0;
+
+  const vw = window.innerWidth;
+  const vh = window.innerHeight;
+
+  let count = 0;
+
+  function pushRect(el) {
+    if (count >= MAX_SHAPES) return;
+    const rect = el.getBoundingClientRect();
+    if (rect.width < 2 || rect.height < 2) return;
+    if (rect.right < 0 || rect.bottom < 0) return;
+    if (rect.left > vw || rect.top > vh) return;
+
+    /* CSS 像素 → corrected 坐标 */
+    const u0 = rect.left / vw;
+    const u1 = rect.right / vw;
+    const v0 = 1 - rect.bottom / vh;   /* 顶部 → WebGL y 向上 */
+    const v1 = 1 - rect.top / vh;
+
+    const uc = (u0 + u1) * 0.5;
+    const vc = (v0 + v1) * 0.5;
+
+    const cx = (uc - 0.5) * ASPECT;
+    const cy = (vc - 0.5);
+
+    const halfW = ((u1 - u0) * 0.5) * ASPECT;
+    const halfH = (v1 - v0) * 0.5;
+
+    /* 读取真实 border-radius（CSS 像素），clamp 到短边一半 */
+    let br = 0;
+    try {
+      const cs = getComputedStyle(el);
+      br = parseFloat(cs.borderTopLeftRadius) || 0;
+    } catch (e) {}
+    if (br <= 0) br = Math.min(rect.width, rect.height) * 0.5;
+    br = Math.min(br, Math.min(rect.width, rect.height) * 0.5);
+
+    const radiusShader = br / vh;
+
+    shapeCenters[count * 2] = cx;
+    shapeCenters[count * 2 + 1] = cy;
+    shapeHalfSizes[count * 2] = halfW;
+    shapeHalfSizes[count * 2 + 1] = halfH;
+    shapeRadii[count] = radiusShader;
+
+    count++;
+  }
+
+  /* 顶部按钮 */
+  const btns = document.querySelectorAll('.topBtn');
+  for (let i = 0; i < btns.length; i++) {
+    if (btns[i].offsetParent === null) continue;
+    pushRect(btns[i]);
+  }
+
+  /* 打开的面板 */
+  const openModal = document.querySelector('.modal.show');
+  if (openModal) {
+    const card = openModal.querySelector('.modalCard');
+    if (card) pushRect(card);
+  }
+
+  return count;
 }
 
 /* ==========================================================
@@ -884,9 +976,10 @@ const glassUniforms = {
   uOuterTex:           gl.getUniformLocation(glassProgram, 'uOuterTex'),
   uResolution:         gl.getUniformLocation(glassProgram, 'uResolution'),
   uAspect:             gl.getUniformLocation(glassProgram, 'uAspect'),
-  uGlassCenter:        gl.getUniformLocation(glassProgram, 'uGlassCenter'),
-  uGlassHalfSize:      gl.getUniformLocation(glassProgram, 'uGlassHalfSize'),
-  uGlassRadius:        gl.getUniformLocation(glassProgram, 'uGlassRadius'),
+  uShapeCount:         gl.getUniformLocation(glassProgram, 'uShapeCount'),
+  uShapeCenter:        gl.getUniformLocation(glassProgram, 'uShapeCenter'),
+  uShapeHalfSize:      gl.getUniformLocation(glassProgram, 'uShapeHalfSize'),
+  uShapeRadius:        gl.getUniformLocation(glassProgram, 'uShapeRadius'),
   uGlassThickness:     gl.getUniformLocation(glassProgram, 'uGlassThickness'),
   uNormalTransition:   gl.getUniformLocation(glassProgram, 'uNormalTransition'),
   uIOR:                gl.getUniformLocation(glassProgram, 'uIOR'),
@@ -903,7 +996,10 @@ function renderGlass(timeSec) {
   gl.clearColor(0, 0, 0, 1);
   gl.clear(gl.COLOR_BUFFER_BIT);
 
-  if (!settings.glass) {
+  const shapeCount = collectGlassShapes();
+
+  if (!settings.glass || shapeCount === 0) {
+    /* 无玻璃：直接显示背景 */
     gl.useProgram(copyProgram);
     gl.activeTexture(gl.TEXTURE0);
     gl.bindTexture(gl.TEXTURE_2D, paintComposeRT.tex);
@@ -915,13 +1011,6 @@ function renderGlass(timeSec) {
   gl.useProgram(glassProgram);
   gl.enable(gl.BLEND);
   gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
-
-  /* 玻璃在 corrected 坐标下的中心与尺寸：始终在屏幕内 */
-  const glassCenterY = (settings.glassY / 100 - 0.5);
-  const glassHalfY   = (settings.glassH / 100) * 0.5;
-  const glassHalfX   = 0.5 - 0.03;
-  const glassRadius  = Math.min(glassHalfY, glassHalfX) * 0.42;
-  const normalTransition = Math.max(glassHalfY * 0.55, 0.02);
 
   gl.uniform1i(glassUniforms.uFaceTex,  0);
   gl.uniform1i(glassUniforms.uInnerTex, 1);
@@ -936,9 +1025,20 @@ function renderGlass(timeSec) {
 
   gl.uniform2f(glassUniforms.uResolution, CW, CH);
   gl.uniform1f(glassUniforms.uAspect, ASPECT);
-  gl.uniform2f(glassUniforms.uGlassCenter, 0.0, glassCenterY);
-  gl.uniform2f(glassUniforms.uGlassHalfSize, glassHalfX, glassHalfY);
-  gl.uniform1f(glassUniforms.uGlassRadius, glassRadius);
+
+  gl.uniform1i(glassUniforms.uShapeCount, shapeCount);
+  gl.uniform2fv(glassUniforms.uShapeCenter, shapeCenters);
+  gl.uniform2fv(glassUniforms.uShapeHalfSize, shapeHalfSizes);
+  gl.uniform1fv(glassUniforms.uShapeRadius, shapeRadii);
+
+  /* 每个形状的过渡带：取最小 halfHeight 的 55% */
+  let minHalfH = 1;
+  for (let i = 0; i < shapeCount; i++) {
+    const h = shapeHalfSizes[i * 2 + 1];
+    if (h < minHalfH) minHalfH = h;
+  }
+  const normalTransition = Math.max(minHalfH * 0.55, 0.008);
+
   gl.uniform1f(glassUniforms.uGlassThickness, settings.glassThickness);
   gl.uniform1f(glassUniforms.uNormalTransition, normalTransition);
   gl.uniform1f(glassUniforms.uIOR, settings.ior);
@@ -1219,13 +1319,9 @@ const setGlass      = document.getElementById('setGlass');
 const setThickness  = document.getElementById('setThickness');
 const setIOR        = document.getElementById('setIOR');
 const setDisp       = document.getElementById('setDisp');
-const setGlassY     = document.getElementById('setGlassY');
-const setGlassH     = document.getElementById('setGlassH');
 const thicknessHint = document.getElementById('thicknessHint');
 const iorHint       = document.getElementById('iorHint');
 const dispHint      = document.getElementById('dispHint');
-const glassYHint    = document.getElementById('glassYHint');
-const glassHHint    = document.getElementById('glassHHint');
 const glassParamsRow= document.getElementById('glassParamsRow');
 
 const setParticles  = document.getElementById('setParticles');
@@ -1337,8 +1433,6 @@ setGlass.checked       = settings.glass;
 setThickness.value     = String(Math.round(settings.glassThickness * 1000));
 setIOR.value           = String(Math.round(settings.ior * 100));
 setDisp.value          = String(Math.round(settings.dispersion * 1000));
-setGlassY.value        = String(settings.glassY);
-setGlassH.value        = String(settings.glassH);
 setParticles.checked   = settings.particles;
 setMagnify.checked     = settings.magnify;
 setMark.checked        = settings.mark;
@@ -1353,15 +1447,15 @@ setRadius.value        = String(settings.radiusPct);
 thicknessHint.textContent = settings.glassThickness.toFixed(3);
 iorHint.textContent       = settings.ior.toFixed(2);
 dispHint.textContent      = settings.dispersion.toFixed(3);
-glassYHint.textContent    = '屏幕 ' + settings.glassY + '%';
-glassHHint.textContent    = '屏幕 ' + settings.glassH + '%';
 radiusHint.textContent    = '屏幕短边的 ' + settings.radiusPct + '%';
 updateCustomAnchorHint();
 updateDistUI();
 
 setGlass.addEventListener('change', () => {
   settings.glass = setGlass.checked;
-  glassParamsRow.style.opacity = settings.glass ? '1' : '0.4';
+  if (glassParamsRow) glassParamsRow.style.opacity = settings.glass ? '1' : '0.4';
+  if (settings.glass) document.body.classList.add('liquid-glass');
+  else document.body.classList.remove('liquid-glass');
 });
 
 setThickness.addEventListener('input', () => {
@@ -1377,16 +1471,6 @@ setIOR.addEventListener('input', () => {
 setDisp.addEventListener('input', () => {
   settings.dispersion = parseInt(setDisp.value, 10) / 1000;
   dispHint.textContent = settings.dispersion.toFixed(3);
-});
-
-setGlassY.addEventListener('input', () => {
-  settings.glassY = parseInt(setGlassY.value, 10) || 55;
-  glassYHint.textContent = '屏幕 ' + settings.glassY + '%';
-});
-
-setGlassH.addEventListener('input', () => {
-  settings.glassH = parseInt(setGlassH.value, 10) || 14;
-  glassHHint.textContent = '屏幕 ' + settings.glassH + '%';
 });
 
 setParticles.addEventListener('change', () => {
@@ -1484,7 +1568,7 @@ if (qqLink) {
 }
 
 /* ==========================================================
-   Canvas 事件（拾取 / 打点）—— 坐标按视口映射
+   Canvas 事件
 ========================================================== */
 function getCanvasCoord(clientX, clientY) {
   const rect = canvas.getBoundingClientRect();
@@ -1517,7 +1601,6 @@ canvas.addEventListener('click', (e) => {
   marks.push({ t: simTime - (CW - cx) / PX_PER_MS });
 });
 
-/* 移动端触摸兼容 */
 canvas.addEventListener('touchstart', (e) => {
   if (e.touches.length !== 1) return;
   const t = e.touches[0];
@@ -1651,9 +1734,11 @@ function init() {
   }
 
   speedVal.textContent = speed.toFixed(1) + ' km/h';
-  glassParamsRow.style.opacity = settings.glass ? '1' : '0.4';
+  if (glassParamsRow) glassParamsRow.style.opacity = settings.glass ? '1' : '0.4';
 
-  /* 首次设置尺寸并建立 RT */
+  if (settings.glass) document.body.classList.add('liquid-glass');
+  else document.body.classList.remove('liquid-glass');
+
   resizeCanvas();
 
   nextSampleTime = 0;
