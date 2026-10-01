@@ -3,11 +3,9 @@
 ========================================================== */
 :root {
   /* 液态玻璃背景不透明度，由 JS 动态修改（0 ~ 1） */
-  --glass-alpha: 0.35;
+  --glass-alpha: 0.30;
   /* 液态玻璃背景基础色（深色） */
-  --glass-color: 18, 20, 30;
-  /* 液态玻璃背景基础色（高光） */
-  --glass-highlight: 255, 255, 255;
+  --glass-color: 20, 22, 34;
 }
 
 *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
@@ -18,10 +16,87 @@ html,body{
 }
 #c{position:fixed;inset:0;display:block;z-index:1}
 
+/* 全局暗角：减弱底部区域，让粒子可见 */
 body::after{
   content:'';position:fixed;inset:0;pointer-events:none;z-index:2;
-  background:radial-gradient(ellipse 78% 68% at 50% 50%,
-    transparent 38%, rgba(0,0,0,.5) 82%, rgba(0,0,0,.85) 100%);
+  background:radial-gradient(ellipse 100% 100% at 50% 50%,
+    transparent 45%, rgba(0,0,0,.25) 78%, rgba(0,0,0,.55) 100%);
+}
+
+/* ================= 彩色光球层 ================= */
+#orbs{
+  position:fixed;inset:0;
+  z-index:3;
+  pointer-events:none;
+  opacity:0;
+  transition:opacity .8s ease;
+  overflow:hidden;
+}
+body.liquid-glass #orbs{opacity:1}
+body.liquid-glass.no-orbs #orbs{opacity:0}
+
+.orb{
+  position:absolute;
+  border-radius:50%;
+  filter:blur(80px);
+  mix-blend-mode:screen;
+  will-change:transform;
+}
+.orb1{
+  width:42vw;height:42vw;max-width:560px;max-height:560px;
+  left:-8%;top:8%;
+  background:radial-gradient(circle at 35% 35%, #ff4d7d 0%, #7a0030 70%);
+  opacity:.55;
+  animation:orbFloat1 22s ease-in-out infinite alternate;
+}
+.orb2{
+  width:38vw;height:38vw;max-width:520px;max-height:520px;
+  right:-6%;top:14%;
+  background:radial-gradient(circle at 60% 40%, #4dc8ff 0%, #003a6e 70%);
+  opacity:.5;
+  animation:orbFloat2 26s ease-in-out infinite alternate;
+}
+.orb3{
+  width:50vw;height:50vw;max-width:640px;max-height:640px;
+  left:18%;bottom:-18%;
+  background:radial-gradient(circle at 40% 60%, #a06bff 0%, #2a005e 70%);
+  opacity:.48;
+  animation:orbFloat3 30s ease-in-out infinite alternate;
+}
+.orb4{
+  width:32vw;height:32vw;max-width:440px;max-height:440px;
+  right:16%;bottom:-6%;
+  background:radial-gradient(circle at 55% 45%, #ffb84d 0%, #5e3400 70%);
+  opacity:.42;
+  animation:orbFloat4 24s ease-in-out infinite alternate;
+}
+.orb5{
+  width:28vw;height:28vw;max-width:380px;max-height:380px;
+  left:42%;top:34%;
+  background:radial-gradient(circle at 50% 50%, #55ffc8 0%, #004d33 70%);
+  opacity:.35;
+  animation:orbFloat5 28s ease-in-out infinite alternate;
+}
+
+@keyframes orbFloat1{
+  0%  {transform:translate(0,0) scale(1)}
+  100%{transform:translate(6vw,4vh) scale(1.15)}
+}
+@keyframes orbFloat2{
+  0%  {transform:translate(0,0) scale(1)}
+  100%{transform:translate(-5vw,6vh) scale(1.1)}
+}
+@keyframes orbFloat3{
+  0%  {transform:translate(0,0) scale(1)}
+  100%{transform:translate(-7vw,-5vh) scale(1.18)}
+}
+@keyframes orbFloat4{
+  0%  {transform:translate(0,0) scale(1)}
+  100%{transform:translate(4vw,-6vh) scale(1.12)}
+}
+@keyframes orbFloat5{
+  0%  {transform:translate(0,0) scale(1)}
+  100%{transform:translate(-4vw,5vh) scale(1.2)}
 }
 
 /* ================= 顶部 HUD ================= */
@@ -224,7 +299,7 @@ body.picking canvas{cursor:crosshair}
   position:fixed;inset:0;z-index:20;
   display:flex;align-items:center;justify-content:center;
   padding:20px;
-  background:rgba(0,0,0,.25); /* 默认模式下稍微压暗背景 */
+  background:rgba(0,0,0,.25);
   backdrop-filter:blur(2px);-webkit-backdrop-filter:blur(2px);
   opacity:0;pointer-events:none;
   transition:opacity .3s ease;
@@ -453,7 +528,7 @@ body.picking canvas{cursor:crosshair}
 .selectBox:focus{border-color:rgba(255,255,255,.5)}
 .selectBox option{background:#0a0a0a;color:#e8e8e8}
 
-/* 迷你滑块（分布半径 / 透明度） */
+/* 迷你滑块 */
 .miniRange{
   -webkit-appearance:none;appearance:none;
   width:110px;
@@ -514,12 +589,12 @@ body.picking canvas{cursor:crosshair}
   transform:translateX(-50%);
   width:min(440px,calc(100vw - 26px));
   padding:13px 16px 11px;
-  background:rgba(10,10,10,.72);
+  background:rgba(10,10,10,.45);
   border:1px solid rgba(255,255,255,.11);
   border-radius:18px;
-  backdrop-filter:blur(20px) saturate(1.2);
-  -webkit-backdrop-filter:blur(20px) saturate(1.2);
-  box-shadow:0 18px 50px rgba(0,0,0,.7);
+  backdrop-filter:blur(12px) saturate(1.2);
+  -webkit-backdrop-filter:blur(12px) saturate(1.2);
+  box-shadow:0 18px 50px rgba(0,0,0,.5);
   z-index:4;
 }
 #btnConnect{
@@ -572,263 +647,245 @@ input[type=range]:disabled{opacity:.24;cursor:not-allowed}
 /* ================================================================
    ================= 液态玻璃（Liquid Glass） ======================
    默认关闭，通过 body.liquid-glass 类启用
+   — 使用 CSS 变量 --glass-alpha 控制不透明度
+   — ::before 做边缘色散（conic-gradient + mask）
+   — ::after 做透镜内部高光
 ================================================================ */
 
-/* ---- 顶部胶囊按钮 ---- */
-body.liquid-glass .topBtn{
-  background:rgba(var(--glass-color), calc(var(--glass-alpha) * 0.7));
+/* ---------- 通用玻璃基底（共享属性） ---------- */
+body.liquid-glass .topBtn,
+body.liquid-glass #panel,
+body.liquid-glass .modalCard,
+body.liquid-glass .modalClose,
+body.liquid-glass #btnConnect,
+body.liquid-glass .smallBtn,
+body.liquid-glass .fullBtn,
+body.liquid-glass .pillLink,
+body.liquid-glass .selectBox{
+  position:relative;
+  overflow:hidden;
+  isolation:isolate;
+  background:
+    linear-gradient(160deg,
+      rgba(255,255,255, calc(var(--glass-alpha) * 0.35)) 0%,
+      rgba(255,255,255, calc(var(--glass-alpha) * 0.08)) 40%,
+      rgba(255,255,255, calc(var(--glass-alpha) * 0.22)) 100%),
+    rgba(var(--glass-color), var(--glass-alpha));
   border:1px solid rgba(255,255,255,.22);
-  color:#f0f0f0;
-  backdrop-filter:blur(28px) saturate(1.9) brightness(1.08);
-  -webkit-backdrop-filter:blur(28px) saturate(1.9) brightness(1.08);
+  backdrop-filter:blur(22px) saturate(1.85) brightness(1.08);
+  -webkit-backdrop-filter:blur(22px) saturate(1.85) brightness(1.08);
   box-shadow:
-    0 8px 28px rgba(0,0,0,.45),
+    0 10px 34px rgba(0,0,0,.45),
     0 0 0 .5px rgba(255,255,255,.05),
-    inset 0 1px 0 rgba(255,255,255,.35),
-    inset 0 -1px 0 rgba(255,255,255,.05),
-    inset 1px 0 0 rgba(255,255,255,.09),
-    inset -1px 0 0 rgba(255,255,255,.09);
-  text-shadow:0 1px 8px rgba(255,255,255,.22);
+    inset 0 1px 0 rgba(255,255,255,.55),
+    inset 0 -1px 0 rgba(255,255,255,.15),
+    inset 1px 0 0 rgba(190,215,255,.28),
+    inset -1px 0 0 rgba(255,190,225,.28);
+  transition:background .3s, box-shadow .3s, border-color .3s;
 }
-body.liquid-glass .topBtn::before{
+
+/* ---------- 边缘色散环 ---------- */
+body.liquid-glass .topBtn::before,
+body.liquid-glass #panel::before,
+body.liquid-glass .modalCard::before,
+body.liquid-glass .modalClose::before,
+body.liquid-glass #btnConnect::before,
+body.liquid-glass .smallBtn::before,
+body.liquid-glass .fullBtn::before,
+body.liquid-glass .pillLink::before,
+body.liquid-glass .selectBox::before{
   content:'';
   position:absolute;
-  top:0;left:16%;right:16%;
-  height:1px;
-  background:linear-gradient(90deg,transparent,rgba(255,255,255,.85),transparent);
-  pointer-events:none;
+  inset:0;
   border-radius:inherit;
+  padding:1.4px;
+  background:conic-gradient(
+    from 200deg,
+    rgba(255,120,180,.75),
+    rgba(255,220,140,.45),
+    rgba(140,255,190,.42),
+    rgba(130,200,255,.55),
+    rgba(200,140,255,.62),
+    rgba(255,120,180,.75)
+  );
+  -webkit-mask:
+    linear-gradient(#000 0 0) content-box,
+    linear-gradient(#000 0 0);
+  -webkit-mask-composite:xor;
+          mask-composite:exclude;
+  pointer-events:none;
+  z-index:1;
+  opacity:.85;
+  mix-blend-mode:screen;
 }
-body.liquid-glass .topBtn::after{
+
+/* ---------- 透镜内部高光 ---------- */
+body.liquid-glass .topBtn::after,
+body.liquid-glass #panel::after,
+body.liquid-glass .modalCard::after,
+body.liquid-glass .modalClose::after,
+body.liquid-glass #btnConnect::after,
+body.liquid-glass .smallBtn::after,
+body.liquid-glass .fullBtn::after,
+body.liquid-glass .pillLink::after,
+body.liquid-glass .selectBox::after{
   content:'';
   position:absolute;
   inset:0;
   border-radius:inherit;
   background:
-    radial-gradient(ellipse 120% 70% at 20% 0%, rgba(255,255,255,.16), transparent 55%),
-    radial-gradient(ellipse 100% 60% at 85% 100%, rgba(180,200,255,.08), transparent 55%);
+    radial-gradient(ellipse 105% 55% at 50% -10%,
+      rgba(255,255,255,.42) 0%,
+      rgba(255,255,255,.10) 42%,
+      transparent 70%),
+    radial-gradient(ellipse 85% 42% at 50% 110%,
+      rgba(255,255,255,.14) 0%,
+      transparent 58%),
+    radial-gradient(ellipse 42% 32% at 22% 18%,
+      rgba(255,255,255,.20) 0%,
+      transparent 72%);
   pointer-events:none;
+  z-index:2;
   mix-blend-mode:screen;
 }
-body.liquid-glass .topBtn:hover{
-  background:rgba(var(--glass-color), calc(var(--glass-alpha) * 0.9));
-  border-color:rgba(255,255,255,.4);
+
+/* 内容置于玻璃效果之上 */
+body.liquid-glass .topBtn,
+body.liquid-glass #panel > *,
+body.liquid-glass .modalCard > *,
+body.liquid-glass #btnConnect,
+body.liquid-glass .smallBtn,
+body.liquid-glass .fullBtn,
+body.liquid-glass .pillLink,
+body.liquid-glass .selectBox{
+  position:relative;
+  z-index:3;
+}
+
+/* ---------- 悬停 / 激活状态强化 ---------- */
+body.liquid-glass .topBtn:hover,
+body.liquid-glass .smallBtn:hover,
+body.liquid-glass .fullBtn:hover,
+body.liquid-glass .pillLink:hover{
+  background:
+    linear-gradient(160deg,
+      rgba(255,255,255, calc(var(--glass-alpha) * 0.55)) 0%,
+      rgba(255,255,255, calc(var(--glass-alpha) * 0.18)) 40%,
+      rgba(255,255,255, calc(var(--glass-alpha) * 0.38)) 100%),
+    rgba(var(--glass-color), calc(var(--glass-alpha) * 1.15));
+  border-color:rgba(255,255,255,.45);
   color:#fff;
 }
 
-/* ---- 底部控制面板 ---- */
-body.liquid-glass #panel{
-  background:rgba(var(--glass-color), var(--glass-alpha));
-  border:1px solid rgba(255,255,255,.18);
-  backdrop-filter:blur(32px) saturate(1.9) brightness(1.06);
-  -webkit-backdrop-filter:blur(32px) saturate(1.9) brightness(1.06);
-  box-shadow:
-    0 24px 70px rgba(0,0,0,.6),
-    0 0 0 .5px rgba(255,255,255,.04),
-    inset 0 1px 0 rgba(255,255,255,.3),
-    inset 0 -1px 0 rgba(255,255,255,.04),
-    inset 1px 0 0 rgba(255,255,255,.08),
-    inset -1px 0 0 rgba(255,255,255,.08),
-    inset 0 0 70px rgba(255,255,255,.03);
-  overflow:hidden;
-}
-body.liquid-glass #panel::before{
-  content:'';
-  position:absolute;
-  top:0;left:12%;right:12%;
-  height:1px;
-  background:linear-gradient(90deg,transparent,rgba(255,255,255,.8),transparent);
-  pointer-events:none;
-  z-index:1;
-}
-body.liquid-glass #panel::after{
-  content:'';
-  position:absolute;
-  inset:0;
-  border-radius:inherit;
-  background:
-    radial-gradient(ellipse 110% 60% at 18% 0%, rgba(255,255,255,.12), transparent 55%),
-    radial-gradient(ellipse 90% 55% at 85% 100%, rgba(170,200,255,.06), transparent 55%);
-  pointer-events:none;
-  z-index:0;
-}
-body.liquid-glass #panel > *{
-  position:relative;
-  z-index:2;
-}
-body.liquid-glass #btnConnect{
-  background:rgba(255,255,255,.08);
-  border:1px solid rgba(255,255,255,.3);
-  backdrop-filter:blur(14px);
-  -webkit-backdrop-filter:blur(14px);
-  box-shadow:
-    0 4px 16px rgba(0,0,0,.35),
-    inset 0 1px 0 rgba(255,255,255,.35),
-    inset 0 -1px 0 rgba(255,255,255,.05);
-}
 body.liquid-glass #btnConnect:hover{
-  background:rgba(255,255,255,.16);
+  background:
+    linear-gradient(160deg,
+      rgba(255,255,255, calc(var(--glass-alpha) * 0.55)) 0%,
+      rgba(255,255,255, calc(var(--glass-alpha) * 0.18)) 40%,
+      rgba(255,255,255, calc(var(--glass-alpha) * 0.38)) 100%),
+    rgba(var(--glass-color), calc(var(--glass-alpha) * 1.15));
   border-color:rgba(255,255,255,.55);
 }
+
 body.liquid-glass #btnConnect[data-on="1"]{
   background:rgba(255,255,255,.92);
   border-color:#fff;
   color:#000;
   box-shadow:
-    0 6px 24px rgba(255,255,255,.25),
-    inset 0 1px 0 rgba(255,255,255,.9),
-    inset 0 -1px 0 rgba(0,0,0,.12);
+    0 8px 28px rgba(255,255,255,.28),
+    inset 0 1px 0 rgba(255,255,255,.95),
+    inset 0 -1px 0 rgba(0,0,0,.15);
 }
 
-/* ---- 模态遮罩：极低透明度，让粒子完全透出 ---- */
+body.liquid-glass .modalClose:hover{
+  background:
+    linear-gradient(160deg,
+      rgba(255,255,255, calc(var(--glass-alpha) * 0.55)) 0%,
+      rgba(255,255,255, calc(var(--glass-alpha) * 0.18)) 100%),
+    rgba(var(--glass-color), calc(var(--glass-alpha) * 1.2));
+  border-color:rgba(255,255,255,.55);
+  color:#fff;
+}
+
+/* ---------- 底部面板专属：更小模糊以透出粒子 ---------- */
+body.liquid-glass #panel{
+  backdrop-filter:blur(14px) saturate(1.85) brightness(1.08);
+  -webkit-backdrop-filter:blur(14px) saturate(1.85) brightness(1.08);
+}
+
+/* ---------- 模态遮罩：极淡，粒子可见 ---------- */
 body.liquid-glass .modal{
-  background:rgba(0,0,0,.08); /* 很淡的遮罩，保证粒子可见 */
+  background:rgba(0,0,0,.08);
   backdrop-filter:blur(1px);
   -webkit-backdrop-filter:blur(1px);
 }
 
-/* ---- 模态卡片（设置/关于/说明） ---- */
+/* ---------- 模态卡片专属调整 ---------- */
 body.liquid-glass .modalCard{
-  background:rgba(var(--glass-color), var(--glass-alpha));
-  border:1px solid rgba(255,255,255,.2);
-  backdrop-filter:blur(36px) saturate(1.9) brightness(1.08);
-  -webkit-backdrop-filter:blur(36px) saturate(1.9) brightness(1.08);
-  box-shadow:
-    0 32px 100px rgba(0,0,0,.7),
-    0 0 0 .5px rgba(255,255,255,.06),
-    inset 0 1px 0 rgba(255,255,255,.28),
-    inset 0 -1px 0 rgba(255,255,255,.04),
-    inset 1px 0 0 rgba(255,255,255,.08),
-    inset -1px 0 0 rgba(255,255,255,.08),
-    inset 0 0 90px rgba(255,255,255,.025);
-}
-body.liquid-glass .modalCard::before{
-  content:'';
-  position:absolute;
-  top:0;left:14%;right:14%;
-  height:1px;
-  background:linear-gradient(90deg,transparent,rgba(255,255,255,.75),transparent);
-  pointer-events:none;
-  z-index:2;
-}
-body.liquid-glass .modalCard::after{
-  content:'';
-  position:absolute;
-  inset:0;
-  border-radius:inherit;
-  background:
-    radial-gradient(ellipse 130% 60% at 15% -5%, rgba(255,255,255,.14), transparent 55%),
-    radial-gradient(ellipse 90% 50% at 90% 105%, rgba(170,200,255,.07), transparent 55%);
-  pointer-events:none;
-  z-index:0;
-}
-body.liquid-glass .modalCard > *{
-  position:relative;
-  z-index:1;
+  backdrop-filter:blur(28px) saturate(1.85) brightness(1.08);
+  -webkit-backdrop-filter:blur(28px) saturate(1.85) brightness(1.08);
 }
 
-/* 关闭按钮玻璃化 */
-body.liquid-glass .modalClose{
-  background:rgba(255,255,255,.06);
-  border:1px solid rgba(255,255,255,.22);
-  backdrop-filter:blur(10px);
-  -webkit-backdrop-filter:blur(10px);
-  color:#ddd;
-  box-shadow:inset 0 1px 0 rgba(255,255,255,.25);
-}
-body.liquid-glass .modalClose:hover{
-  background:rgba(255,255,255,.16);
-  border-color:rgba(255,255,255,.5);
-  color:#fff;
-}
-
-/* ---- 设置项里的玻璃化元素 ---- */
-body.liquid-glass .devGroup{
-  background:rgba(255,255,255,.035);
-  border:1px solid rgba(255,255,255,.14);
-  backdrop-filter:blur(10px);
-  -webkit-backdrop-filter:blur(10px);
-  box-shadow:
-    inset 0 1px 0 rgba(255,255,255,.12),
-    0 2px 10px rgba(0,0,0,.2);
-}
-body.liquid-glass .devGroup:hover{
-  background:rgba(255,255,255,.075);
-  border-color:rgba(255,255,255,.26);
-}
-
-body.liquid-glass .pillLink{
-  background:rgba(255,255,255,.06);
-  border:1px solid rgba(255,255,255,.22);
-  backdrop-filter:blur(10px);
-  -webkit-backdrop-filter:blur(10px);
-  box-shadow:inset 0 1px 0 rgba(255,255,255,.22);
-}
-body.liquid-glass .pillLink:hover{
-  background:rgba(255,255,255,.14);
-  border-color:rgba(255,255,255,.5);
-}
-
-body.liquid-glass .selectBox{
-  background-color:rgba(255,255,255,.08);
-  border:1px solid rgba(255,255,255,.22);
-  backdrop-filter:blur(12px);
-  -webkit-backdrop-filter:blur(12px);
-  box-shadow:inset 0 1px 0 rgba(255,255,255,.2);
-}
-
-body.liquid-glass .smallBtn,
-body.liquid-glass .fullBtn{
-  background:rgba(255,255,255,.07);
-  border:1px solid rgba(255,255,255,.24);
-  backdrop-filter:blur(12px);
-  -webkit-backdrop-filter:blur(12px);
-  box-shadow:inset 0 1px 0 rgba(255,255,255,.25);
-  color:#f0f0f0;
-}
-body.liquid-glass .smallBtn:hover,
-body.liquid-glass .fullBtn:hover{
-  background:rgba(255,255,255,.16);
-  border-color:rgba(255,255,255,.5);
-  color:#fff;
-}
-
+/* ---------- 开关：轻量玻璃化 ---------- */
 body.liquid-glass .switch .slider{
   background:rgba(255,255,255,.14);
-  border:1px solid rgba(255,255,255,.22);
-  box-shadow:inset 0 1px 0 rgba(255,255,255,.2);
+  border:1px solid rgba(255,255,255,.24);
+  box-shadow:
+    inset 0 1px 0 rgba(255,255,255,.28),
+    0 2px 8px rgba(0,0,0,.25);
 }
 body.liquid-glass .switch input:checked + .slider{
   background:rgba(255,255,255,.95);
   border-color:#fff;
   box-shadow:
-    0 0 12px rgba(255,255,255,.45),
+    0 0 14px rgba(255,255,255,.5),
     inset 0 1px 0 rgba(255,255,255,.95),
-    inset 0 -1px 0 rgba(0,0,0,.1);
+    inset 0 -1px 0 rgba(0,0,0,.12);
 }
 
+/* ---------- 颜色圆点：轻量玻璃化 ---------- */
 body.liquid-glass .colorDot{
-  border:2px solid rgba(255,255,255,.28);
+  border:2px solid rgba(255,255,255,.32);
   box-shadow:
-    0 2px 8px rgba(0,0,0,.35),
-    inset 0 1px 0 rgba(255,255,255,.35);
+    0 2px 10px rgba(0,0,0,.4),
+    inset 0 1px 0 rgba(255,255,255,.4);
 }
 body.liquid-glass .colorDot.active{
   border-color:#fff;
   box-shadow:
     0 0 0 2px rgba(255,255,255,.35),
-    0 0 12px rgba(255,255,255,.5),
-    inset 0 1px 0 rgba(255,255,255,.5);
+    0 0 14px rgba(255,255,255,.55),
+    inset 0 1px 0 rgba(255,255,255,.55);
 }
 
+/* ---------- 设备分组：轻微玻璃化 ---------- */
+body.liquid-glass .devGroup{
+  background:rgba(255,255,255,.05);
+  border:1px solid rgba(255,255,255,.16);
+  backdrop-filter:blur(10px);
+  -webkit-backdrop-filter:blur(10px);
+  box-shadow:
+    inset 0 1px 0 rgba(255,255,255,.18),
+    0 2px 12px rgba(0,0,0,.25);
+}
+body.liquid-glass .devGroup:hover{
+  background:rgba(255,255,255,.09);
+  border-color:rgba(255,255,255,.3);
+}
+
+/* ---------- 文字色微调 ---------- */
 body.liquid-glass .settingRow{
-  border-bottom-color:rgba(255,255,255,.09);
+  border-bottom-color:rgba(255,255,255,.10);
 }
-
 body.liquid-glass .modalSub{
-  color:#7a8699;
+  color:#8390a4;
 }
-
 body.liquid-glass .modalSection h3{
-  color:#8a94a6;
+  color:#93a0b5;
+}
+body.liquid-glass .modalSection p{
+  color:#b8c0cf;
+}
+body.liquid-glass .devGroup li{
+  color:#a5adbb;
 }

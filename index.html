@@ -10,6 +10,15 @@
 
 <canvas id="c"></canvas>
 
+<!-- 彩色光球层：让液态玻璃有色彩可折射 -->
+<div id="orbs" aria-hidden="true">
+  <span class="orb orb1"></span>
+  <span class="orb orb2"></span>
+  <span class="orb orb3"></span>
+  <span class="orb orb4"></span>
+  <span class="orb orb5"></span>
+</div>
+
 <div id="hud">
   <div id="bpmRow">
     <span id="bpmVal">--</span>
@@ -220,7 +229,18 @@
           <span class="settingName">透明度</span>
           <span class="settingHint" id="glassAlphaHint">0% 最透明</span>
         </div>
-        <input id="setGlassAlpha" class="miniRange" type="range" min="0" max="100" step="1" value="0">
+        <input id="setGlassAlpha" class="miniRange" type="range" min="0" max="100" step="1" value="30">
+      </div>
+
+      <div class="settingRow" id="glassOrbsRow" style="display:none">
+        <div class="settingLabel">
+          <span class="settingName">彩色光晕</span>
+          <span class="settingHint">背景色球，让玻璃折射有颜色</span>
+        </div>
+        <label class="switch">
+          <input type="checkbox" id="setGlassOrbs" checked>
+          <span class="slider"></span>
+        </label>
       </div>
     </div>
 
@@ -409,9 +429,9 @@
     <div class="modalSection">
       <h3>外观</h3>
       <p>
-        <b>液态玻璃</b>：开启后，所有面板、按钮、弹窗切换为苹果风格的液态玻璃质感，
-        带动态高光、边缘折射和更通透的背景模糊。默认关闭。<br>
-        <b>透明度</b>：调节玻璃的透明程度。“透明”更通透，粒子更明显；“色调”可增加不透明度，提升内容和控制项的对比度。
+        <b>液态玻璃</b>：开启后，面板、按钮、弹窗切换为苹果风格的液态玻璃质感，带边缘色散、透镜高光和动态模糊。默认关闭。<br>
+        <b>透明度</b>：调节玻璃的不透明程度。0% 最透明，粒子完全透出；100% 最实，对比度最高。<br>
+        <b>彩色光晕</b>：在背景铺一层柔和的彩色光球。玻璃边缘的色散需要有色彩可折射，纯黑背景上色散不明显。
       </p>
     </div>
 
