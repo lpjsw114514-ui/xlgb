@@ -1,1215 +1,837 @@
-(function () {
-'use strict';
-
 /* ==========================================================
-   画布 / 尺寸
+   根变量
 ========================================================== */
-const canvas = document.getElementById('c');
-const ctx    = canvas.getContext('2d');
-
-let W = 0, H = 0, DPR = 1, cx = 0, cy = 0;
-let A = 160;
-let baseY = 0;
-
-const TAU = Math.PI * 2;
-
-function resize() {
-  DPR = Math.min(window.devicePixelRatio || 1, 2);
-  W = window.innerWidth;
-  H = window.innerHeight;
-
-  canvas.width  = Math.round(W * DPR);
-  canvas.height = Math.round(H * DPR);
-  canvas.style.width  = W + 'px';
-  canvas.style.height = H + 'px';
-  ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
-
-  cx = W / 2;
-  cy = H / 2;
-
-  A     = Math.min(H * 0.26, 200);
-  baseY = cy + 0.375 * A;
+:root {
+  /* 液态玻璃背景不透明度，由 JS 动态修改（0 ~ 1） */
+  --glass-alpha: 0.35;
+  /* 液态玻璃背景基础色（深色） */
+  --glass-color: 18, 20, 30;
+  /* 液态玻璃背景基础色（高光） */
+  --glass-highlight: 255, 255, 255;
 }
 
-window.addEventListener('resize', resize);
-window.addEventListener('orientationchange', () => setTimeout(resize, 120));
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+html,body{
+  margin:0;height:100%;overflow:hidden;
+  background:#000;color:#fff;
+  font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Microsoft YaHei",sans-serif;
+}
+#c{position:fixed;inset:0;display:block;z-index:1}
 
-/* ==========================================================
-   设置
-========================================================== */
-const settings = {
-  glass:         false,      /* 液态玻璃，默认关闭 */
-  glassAlpha:    0.35,       /* 液态玻璃背景不透明度，0 最透明 */
-  particles:     true,
-  density:       1.6,
-  particleColor: '#ffffff',
-  sway:          'free',
-  fullDist:      false,
-  anchor:        'rpeak',
-  customAnchor:  { x: 0.5, y: 0.5 },
-  radiusPct:     60,
-  magnify:       true,
-  mark:          true,
-  signal:        true,
-  sigStrength:   true
-};
-
-/* ==========================================================
-   状态
-========================================================== */
-const SAMPLE_MS = 5;
-const PX_PER_MS = 0.50;
-const MAX_SPARKS = 9000;
-
-let simTime        = 0;
-let nextSampleTime = 0;
-
-let samples = [];
-let phase   = 0;
-let beatEnv = 0;
-
-let bpm          = 72;
-let beatInterval = 60000 / 72;
-let speed        = 0;
-let usingReal    = false;
-let realBpm      = 0;
-
-/* 信号强度 */
-let signalStrength = 0;
-let lastPacketTime = performance.now();
-
-/* 拾取模式 */
-let pickingAnchor = false;
-
-const sparks  = [];
-const ripples = [];
-const marks   = [];
-
-/* ==========================================================
-   心电波形
-========================================================== */
-function ecgAt(t) {
-  let v = 0;
-  v += 0.090 * Math.exp(-Math.pow((t - 0.120) / 0.0250, 2));
-  v -= 0.130 * Math.exp(-Math.pow((t - 0.213) / 0.0080, 2));
-  v += 1.000 * Math.exp(-Math.pow((t - 0.235) / 0.0105, 2));
-  v -= 0.250 * Math.exp(-Math.pow((t - 0.262) / 0.0120, 2));
-  v += 0.250 * Math.exp(-Math.pow((t - 0.420) / 0.0480, 2));
-  return v;
+/* 全局暗角：减弱底部区域，让底部粒子可见 */
+body::after{
+  content:'';position:fixed;inset:0;pointer-events:none;z-index:2;
+  background:radial-gradient(ellipse 100% 100% at 50% 50%,
+    transparent 45%, rgba(0,0,0,.25) 78%, rgba(0,0,0,.55) 100%);
 }
 
-/* ==========================================================
-   摆动方向 → 速度向量
-========================================================== */
-function pickVelocity(spd) {
-  const s = settings.sway;
-  let ang, vx, vy, cos, sin;
+/* ================= 顶部 HUD ================= */
+#hud{
+  position:fixed;left:clamp(16px,3.2vw,40px);top:clamp(14px,2.6vh,32px);
+  z-index:4;pointer-events:none;user-select:none;
+}
+#bpmRow{display:flex;align-items:baseline;gap:8px}
+#bpmVal{
+  font-family:ui-monospace,"SF Mono","JetBrains Mono",Menlo,Consolas,monospace;
+  font-size:clamp(44px,10vw,86px);
+  font-weight:200;line-height:.9;letter-spacing:-.05em;
+  color:#fff;
+  font-variant-numeric:tabular-nums;
+  transform-origin:left center;will-change:transform;
+  text-shadow:0 0 22px rgba(255,255,255,.55), 0 0 60px rgba(255,255,255,.22);
+}
+#bpmUnit{
+  font-family:ui-monospace,"SF Mono",Menlo,monospace;
+  font-size:clamp(10px,1.5vw,13px);
+  letter-spacing:.36em;color:#8a8a8a;
+}
+#bpmSub{
+  margin-top:9px;
+  display:flex;
+  align-items:center;
+  gap:12px;
+  font-family:ui-monospace,"SF Mono",Menlo,monospace;
+  font-size:10px;letter-spacing:.26em;
+  color:#4a4a4a;text-transform:uppercase;
+}
+#bpmSub b{color:#c8c8c8;font-weight:500}
 
-  if (s === 'up') {
-    ang = -Math.PI / 2 + (Math.random() - 0.5) * Math.PI * 0.75;
-    vx = Math.cos(ang) * spd;
-    vy = Math.sin(ang) * spd;
-  } else if (s === 'down') {
-    ang = Math.PI / 2 + (Math.random() - 0.5) * Math.PI * 0.75;
-    vx = Math.cos(ang) * spd;
-    vy = Math.sin(ang) * spd;
-  } else if (s === 'left') {
-    ang = Math.PI + (Math.random() - 0.5) * Math.PI * 0.75;
-    vx = Math.cos(ang) * spd;
-    vy = Math.sin(ang) * spd;
-  } else if (s === 'right') {
-    ang = (Math.random() - 0.5) * Math.PI * 0.75;
-    vx = Math.cos(ang) * spd;
-    vy = Math.sin(ang) * spd;
-  } else if (s === 'cw') {
-    ang = Math.random() * TAU;
-    cos = Math.cos(ang);
-    sin = Math.sin(ang);
-    vx = (cos * 0.72 + sin * 0.55) * spd;
-    vy = (sin * 0.72 - cos * 0.55) * spd;
-  } else if (s === 'ccw') {
-    ang = Math.random() * TAU;
-    cos = Math.cos(ang);
-    sin = Math.sin(ang);
-    vx = (cos * 0.72 - sin * 0.55) * spd;
-    vy = (sin * 0.72 + cos * 0.55) * spd;
-  } else {
-    ang = Math.random() * TAU;
-    vx = Math.cos(ang) * spd;
-    vy = Math.sin(ang) * spd;
+/* ================= 信号强度 ================= */
+#sigStrengthRow{
+  margin-top:10px;
+  display:flex;
+  align-items:center;
+  gap:9px;
+  font-family:ui-monospace,"SF Mono",Menlo,monospace;
+  transition:opacity .25s, max-height .25s, margin .25s;
+}
+#sigStrengthRow.hide{
+  opacity:0;
+  max-height:0;
+  margin-top:0;
+  overflow:hidden;
+  pointer-events:none;
+}
+.sigBars{
+  display:flex;
+  align-items:flex-end;
+  gap:3px;
+  height:15px;
+}
+.sigBars i{
+  display:block;
+  width:3px;
+  border-radius:1px;
+  background:rgba(255,255,255,.12);
+  transition:background .22s, box-shadow .22s;
+}
+.sigBars .b1{height:4px}
+.sigBars .b2{height:7px}
+.sigBars .b3{height:11px}
+.sigBars .b4{height:15px}
+.sigBars i.on{
+  background:#fff;
+  box-shadow:0 0 6px rgba(255,255,255,.75);
+}
+#sigPct{
+  font-size:10.5px;
+  color:#c8c8c8;
+  font-weight:500;
+  letter-spacing:.06em;
+  font-variant-numeric:tabular-nums;
+  min-width:30px;
+}
+.sigLabel{
+  font-size:9px;
+  letter-spacing:.26em;
+  color:#4a4a4a;
+}
+
+/* ================= 信号指示灯 ================= */
+.signalIdle{
+  position:relative;
+  display:inline-flex;
+  align-items:center;
+  justify-content:center;
+  width:14px;height:14px;
+  flex:0 0 auto;
+}
+.sigDot{
+  position:absolute;
+  left:50%;top:50%;
+  width:5px;height:5px;
+  margin-left:-2.5px;margin-top:-2.5px;
+  border-radius:50%;
+  background:#fff;
+  opacity:.18;
+  transition:opacity .12s ease;
+}
+.sigRing{
+  position:absolute;
+  left:50%;top:50%;
+  width:14px;height:14px;
+  margin-left:-7px;margin-top:-7px;
+  border-radius:50%;
+  border:1px solid rgba(255,255,255,.9);
+  opacity:0;
+  transform:scale(.2);
+  pointer-events:none;
+}
+.sigRing2{
+  border-color:rgba(255,255,255,.55);
+}
+
+.signalIdle.beat .sigDot{
+  opacity:1;
+}
+.signalIdle.beat .sigRing{
+  animation:sigRing 700ms cubic-bezier(.22,1,.36,1) forwards;
+}
+.signalIdle.beat .sigRing2{
+  animation:sigRing 900ms cubic-bezier(.22,1,.36,1) 60ms forwards;
+}
+@keyframes sigRing{
+  0%{
+    opacity:.95;
+    transform:scale(.25);
+    border-width:2px;
   }
-
-  return { vx: vx, vy: vy };
-}
-
-/* ==========================================================
-   粒子池
-========================================================== */
-function addSpark(p) {
-  sparks.push(p);
-  if (sparks.length > MAX_SPARKS) {
-    sparks.splice(0, sparks.length - MAX_SPARKS);
+  60%{
+    opacity:.45;
   }
-}
-
-/* ==========================================================
-   分布中心 / 半径
-========================================================== */
-function getCloudCenter(rx, ry) {
-  if (settings.fullDist) return { x: W / 2, y: H / 2 };
-
-  const a = settings.anchor;
-  if (a === 'center') return { x: W / 2, y: H / 2 };
-  if (a === 'top')    return { x: W / 2, y: H * 0.22 };
-  if (a === 'bottom') return { x: W / 2, y: H * 0.78 };
-  if (a === 'left')   return { x: W * 0.22, y: H / 2 };
-  if (a === 'right')  return { x: W * 0.78, y: H / 2 };
-  if (a === 'custom') return { x: W * settings.customAnchor.x, y: H * settings.customAnchor.y };
-  return { x: rx, y: ry };
-}
-
-function getCloudRadius() {
-  if (settings.fullDist) return Math.hypot(W, H) * 0.55;
-  return Math.min(W, H) * (settings.radiusPct / 100);
-}
-
-/* ==========================================================
-   信号灯脉冲
-========================================================== */
-const signalEl = document.getElementById('signal');
-
-function signalPulse() {
-  if (!settings.signal || !signalEl) return;
-  signalEl.classList.remove('beat');
-  void signalEl.offsetWidth;
-  signalEl.classList.add('beat');
-}
-
-/* ==========================================================
-   心跳 → 星空粒子迸发
-========================================================== */
-function onBeat(beatTime) {
-  const rx = W - (simTime - beatTime) * PX_PER_MS;
-  const ry = baseY - A * 0.95;
-
-  signalPulse();
-
-  if (settings.particles) {
-    const mult = settings.density || 1.6;
-
-    const center = getCloudCenter(rx, ry);
-    const cloudR = getCloudRadius();
-
-    const baseN = settings.fullDist ? 480 : 320;
-    const n = Math.round((baseN + Math.random() * 180) * mult);
-
-    for (let i = 0; i < n; i++) {
-      const ang = Math.random() * TAU;
-
-      const u = Math.random();
-      const r = cloudR * Math.pow(u, settings.fullDist ? 0.62 : 0.55);
-
-      const px = center.x + Math.cos(ang) * r;
-      const py = center.y + Math.sin(ang) * r * 0.88;
-
-      if (px < -40 || px > W + 40 || py < -40 || py > H + 40) continue;
-
-      const spd = 6 + Math.random() * 44;
-      const v   = pickVelocity(spd);
-
-      addSpark({
-        x: px, y: py,
-        vx: v.vx, vy: v.vy,
-        life: 1,
-        decay: 0.055 + Math.random() * 0.14,
-        size: 1.4,
-        trail: null,
-        twinklePhase: Math.random() * TAU,
-        twinkleSpeed: 1.2 + Math.random() * 4.5,
-        star: true
-      });
-    }
-
-    const nc = Math.round(18 * mult);
-    for (let i = 0; i < nc; i++) {
-      const spd = 25 + Math.random() * 120;
-      const v   = pickVelocity(spd);
-      addSpark({
-        x: rx, y: ry,
-        vx: v.vx, vy: v.vy,
-        life: 1,
-        decay: 0.35 + Math.random() * 0.4,
-        size: 3.0,
-        trail: [rx, ry],
-        maxTrail: 9,
-        star: false
-      });
-    }
-  }
-
-  ripples.push({
-    x: rx, y: ry,
-    r: 4,
-    maxR: 100 + Math.random() * 70,
-    life: 1,
-    decay: 1.4 + Math.random() * 0.7
-  });
-}
-
-/* ==========================================================
-   更新
-========================================================== */
-function update(dt) {
-  let target;
-  if (usingReal && realBpm > 0) {
-    target = realBpm;
-  } else {
-    const now = performance.now() / 1000;
-    target = 68 + 112 * (1 - Math.exp(-speed / 7.5))
-           + Math.sin(now * 1.50) * 2.2
-           + Math.sin(now * 0.53 + 1.3) * 1.6;
-  }
-
-  bpm += (target - bpm) * (1 - Math.exp(-dt / 800));
-  bpm = Math.max(30, Math.min(220, bpm));
-  beatInterval = 60000 / bpm;
-
-  simTime += dt;
-
-  let guard = 0;
-  const R = 0.235;
-
-  while (nextSampleTime <= simTime && guard++ < 300) {
-    const prevPhase = phase;
-    phase += SAMPLE_MS / beatInterval;
-
-    let wrapped = false;
-    if (phase >= 1) { phase -= 1; wrapped = true; }
-
-    samples.push({ t: nextSampleTime, v: ecgAt(phase) });
-
-    let hit;
-    if (!wrapped) {
-      hit = (prevPhase < R && phase >= R);
-    } else {
-      hit = (prevPhase < R) || (phase >= R);
-    }
-    if (hit) onBeat(nextSampleTime);
-
-    nextSampleTime += SAMPLE_MS;
-  }
-
-  const maxAge = (W + 260) / PX_PER_MS;
-  while (samples.length && (simTime - samples[0].t) > maxAge) {
-    samples.shift();
-  }
-
-  const markAge = (W + 400) / PX_PER_MS;
-  for (let i = marks.length - 1; i >= 0; i--) {
-    if (simTime - marks[i].t > markAge) marks.splice(i, 1);
-  }
-
-  let d = phase - R;
-  if (d < 0) d += 1;
-  beatEnv = Math.exp(-d * 17);
-
-  bpmVal.textContent = Math.round(bpm);
-  bpmVal.style.transform = 'scale(' + (1 + beatEnv * 0.05).toFixed(4) + ')';
-
-  if (usingReal) {
-    const sinceLast = performance.now() - lastPacketTime;
-    if (sinceLast > 3000) {
-      signalStrength -= dt * 0.05;
-    } else if (sinceLast > 1500) {
-      signalStrength -= dt * 0.015;
-    } else {
-      signalStrength += (98 - signalStrength) * (1 - Math.exp(-dt / 1500));
-    }
-  } else {
-    const tgt = 88 + Math.sin(performance.now() / 2000) * 4;
-    signalStrength += (tgt - signalStrength) * (1 - Math.exp(-dt / 800));
-  }
-  signalStrength = Math.max(0, Math.min(100, signalStrength));
-
-  updateSigStrengthUI();
-}
-
-/* ==========================================================
-   信号强度 UI
-========================================================== */
-const sigBarEls = document.querySelectorAll('#sigStrengthRow .sigBars i');
-const sigPctEl  = document.getElementById('sigPct');
-
-function updateSigStrengthUI() {
-  const v = signalStrength;
-  const pct = Math.round(v);
-
-  const level = v >= 85 ? 4 : v >= 60 ? 3 : v >= 35 ? 2 : v >= 12 ? 1 : 0;
-
-  for (let i = 0; i < sigBarEls.length; i++) {
-    if (i < level) sigBarEls[i].classList.add('on');
-    else sigBarEls[i].classList.remove('on');
-  }
-
-  sigPctEl.textContent = pct + '%';
-}
-
-/* ==========================================================
-   绘制：网格
-========================================================== */
-function drawGrid() {
-  const minor = 10, major = 50;
-
-  ctx.lineWidth = 1;
-
-  ctx.strokeStyle = 'rgba(255,255,255,0.030)';
-  ctx.beginPath();
-  for (let x = 0; x < W; x += minor) { ctx.moveTo(x + .5, 0); ctx.lineTo(x + .5, H); }
-  for (let y = 0; y < H; y += minor) { ctx.moveTo(0, y + .5); ctx.lineTo(W, y + .5); }
-  ctx.stroke();
-
-  ctx.strokeStyle = 'rgba(255,255,255,0.065)';
-  ctx.beginPath();
-  for (let x = 0; x < W; x += major) { ctx.moveTo(x + .5, 0); ctx.lineTo(x + .5, H); }
-  for (let y = 0; y < H; y += major) { ctx.moveTo(0, y + .5); ctx.lineTo(W, y + .5); }
-  ctx.stroke();
-
-  ctx.strokeStyle = 'rgba(255,255,255,0.09)';
-  ctx.beginPath();
-  ctx.moveTo(0, baseY + .5);
-  ctx.lineTo(W, baseY + .5);
-  ctx.stroke();
-}
-
-/* ==========================================================
-   绘制：心电波形
-========================================================== */
-function drawWave() {
-  const n = samples.length;
-  if (n < 2) return;
-
-  const path = new Path2D();
-  let started = false;
-
-  for (let i = 0; i < n; i++) {
-    const s = samples[i];
-    const x = W - (simTime - s.t) * PX_PER_MS;
-    if (x < -30) continue;
-    if (x > W + 30) break;
-
-    const y = baseY - s.v * A;
-    if (!started) { path.moveTo(x, y); started = true; }
-    else path.lineTo(x, y);
-  }
-  if (!started) return;
-
-  const grad = ctx.createLinearGradient(0, 0, W * 0.26, 0);
-  grad.addColorStop(0, 'rgba(255,255,255,0)');
-  grad.addColorStop(1, 'rgba(255,255,255,1)');
-
-  ctx.save();
-  ctx.lineCap  = 'round';
-  ctx.lineJoin = 'round';
-  ctx.strokeStyle = grad;
-
-  const layers = [
-    { w: 16,  a: 0.035 },
-    { w: 8,   a: 0.070 },
-    { w: 4,   a: 0.160 },
-    { w: 2,   a: 0.400 },
-    { w: 0.95,a: 1.000 }
-  ];
-
-  for (let i = 0; i < layers.length; i++) {
-    ctx.globalAlpha = layers[i].a;
-    ctx.lineWidth   = layers[i].w;
-    ctx.stroke(path);
-  }
-
-  ctx.restore();
-  ctx.globalAlpha = 1;
-}
-
-/* ==========================================================
-   绘制：打点标记
-========================================================== */
-function drawMarks() {
-  if (marks.length === 0) return;
-
-  ctx.save();
-  for (let i = 0; i < marks.length; i++) {
-    const m = marks[i];
-    const x = W - (simTime - m.t) * PX_PER_MS;
-    if (x < -30 || x > W + 30) continue;
-
-    const topY = baseY - A * 1.2;
-    const botY = baseY + A * 0.8;
-
-    ctx.strokeStyle = 'rgba(255,255,255,.28)';
-    ctx.lineWidth = 1;
-    ctx.beginPath();
-    ctx.moveTo(x, topY);
-    ctx.lineTo(x, botY);
-    ctx.stroke();
-
-    ctx.globalAlpha = 0.28;
-    ctx.fillStyle = '#fff';
-    ctx.beginPath();
-    ctx.arc(x, topY, 8, 0, TAU);
-    ctx.fill();
-    ctx.globalAlpha = 1;
-
-    ctx.fillStyle = '#fff';
-    ctx.beginPath();
-    ctx.arc(x, topY, 3.5, 0, TAU);
-    ctx.fill();
-  }
-  ctx.restore();
-}
-
-/* ==========================================================
-   绘制：拾取模式十字准心
-========================================================== */
-function drawPickerCrosshair() {
-  if (!pickingAnchor) return;
-  if (!mouseX && !mouseY) return;
-
-  ctx.save();
-  ctx.strokeStyle = 'rgba(255,255,255,.55)';
-  ctx.lineWidth = 1;
-
-  ctx.beginPath();
-  ctx.moveTo(mouseX - 22, mouseY);
-  ctx.lineTo(mouseX - 6, mouseY);
-  ctx.moveTo(mouseX + 6, mouseY);
-  ctx.lineTo(mouseX + 22, mouseY);
-  ctx.moveTo(mouseX, mouseY - 22);
-  ctx.lineTo(mouseX, mouseY - 6);
-  ctx.moveTo(mouseX, mouseY + 6);
-  ctx.lineTo(mouseX, mouseY + 22);
-  ctx.stroke();
-
-  ctx.beginPath();
-  ctx.arc(mouseX, mouseY, 3, 0, TAU);
-  ctx.stroke();
-
-  ctx.restore();
-}
-
-let mouseX = 0, mouseY = 0;
-
-/* ==========================================================
-   绘制：星空粒子 + 拖尾 + 涟漪
-========================================================== */
-function drawSparks(dtSec) {
-  ctx.save();
-  ctx.globalCompositeOperation = 'lighter';
-
-  const damp    = Math.pow(0.30, dtSec);
-  const col     = settings.particleColor;
-  const timeSec = simTime * 0.001;
-
-  for (let i = sparks.length - 1; i >= 0; i--) {
-    const p = sparks[i];
-
-    p.life -= dtSec * p.decay;
-    if (p.life <= 0) { sparks.splice(i, 1); continue; }
-
-    p.x += p.vx * dtSec;
-    p.y += p.vy * dtSec;
-    p.vx *= damp;
-    p.vy *= damp;
-
-    if (p.star) p.vy -= 2.5 * dtSec;
-
-    const a = p.life * p.life;
-
-    let tw = 1;
-    if (p.star) {
-      const s = Math.sin(p.twinklePhase + timeSec * p.twinkleSpeed);
-      tw = 0.22 + 0.78 * (0.5 + 0.5 * s);
-    }
-
-    if (p.trail && p.trail.length) {
-      p.trail.push(p.x, p.y);
-      while (p.trail.length > p.maxTrail * 2) {
-        p.trail.shift();
-        p.trail.shift();
-      }
-
-      const tn = p.trail.length / 2;
-      for (let j = 0; j < tn; j++) {
-        const k  = j / tn;
-        const ta = a * k * k * 0.45;
-        if (ta < 0.01) continue;
-
-        const tr = p.size * k * 0.85;
-        if (tr < 0.2) continue;
-
-        ctx.globalAlpha = ta;
-        ctx.fillStyle = col;
-        ctx.beginPath();
-        ctx.arc(p.trail[j * 2], p.trail[j * 2 + 1], tr, 0, TAU);
-        ctx.fill();
-      }
-    }
-
-    const cr = p.size * (0.5 + p.life * 0.9);
-
-    ctx.globalAlpha = a * tw;
-    ctx.fillStyle = col;
-    ctx.beginPath();
-    ctx.arc(p.x, p.y, cr, 0, TAU);
-    ctx.fill();
-
-    if (p.star && p.size > 1.0) {
-      ctx.globalAlpha = a * tw * 0.22;
-      ctx.beginPath();
-      ctx.arc(p.x, p.y, cr * 3.2, 0, TAU);
-      ctx.fill();
-    }
-
-    if (!p.star && p.size > 2.2 && p.life > 0.4) {
-      const L = p.size * 3.5 * p.life;
-      ctx.globalAlpha = a * 0.5;
-      ctx.fillRect(p.x - L, p.y - 0.5, L * 2, 1);
-      ctx.fillRect(p.x - 0.5, p.y - L, 1, L * 2);
-    }
-  }
-
-  for (let i = ripples.length - 1; i >= 0; i--) {
-    const rp = ripples[i];
-    rp.life -= dtSec * rp.decay;
-    if (rp.life <= 0) { ripples.splice(i, 1); continue; }
-
-    const t    = 1 - rp.life;
-    const ease = 1 - Math.pow(1 - t, 2.4);
-    const r    = rp.r + (rp.maxR - rp.r) * ease;
-
-    ctx.globalAlpha = rp.life * rp.life * 0.5;
-    ctx.strokeStyle = col;
-    ctx.lineWidth   = 1.5 * rp.life + 0.2;
-    ctx.beginPath();
-    ctx.arc(rp.x, rp.y, r, 0, TAU);
-    ctx.stroke();
-  }
-
-  ctx.restore();
-  ctx.globalAlpha = 1;
-}
-
-/* ==========================================================
-   绘制：局部放大窗口
-========================================================== */
-function roundRect(c, x, y, w, h, r) {
-  c.beginPath();
-  c.moveTo(x + r, y);
-  c.arcTo(x + w, y, x + w, y + h, r);
-  c.arcTo(x + w, y + h, x, y + h, r);
-  c.arcTo(x, y + h, x, y, r);
-  c.arcTo(x, y, x + w, y, r);
-  c.closePath();
-}
-
-function drawMagnify() {
-  if (!settings.magnify) return;
-  if (samples.length < 10) return;
-
-  const boxW = Math.min(260, W * 0.36);
-  const boxH = boxW * 0.62;
-  const bx = W - boxW - 20;
-  const by = H - boxH - 140;
-
-  const startT = simTime - beatInterval * 0.98;
-  const seg = [];
-  for (let i = samples.length - 1; i >= 0; i--) {
-    const s = samples[i];
-    if (s.t < startT) break;
-    seg.unshift(s);
-  }
-  if (seg.length < 4) return;
-
-  ctx.save();
-
-  ctx.fillStyle = 'rgba(0,0,0,.58)';
-  ctx.strokeStyle = 'rgba(255,255,255,.18)';
-  ctx.lineWidth = 1;
-  roundRect(ctx, bx, by, boxW, boxH, 10);
-  ctx.fill();
-  ctx.stroke();
-
-  ctx.fillStyle = 'rgba(255,255,255,.45)';
-  ctx.font = '10px ui-monospace, "SF Mono", Menlo, monospace';
-  ctx.textBaseline = 'top';
-  ctx.fillText('ECG · 局部放大', bx + 11, by + 9);
-
-  const padX = 10;
-  const padY = 26;
-  const innerW = boxW - padX * 2;
-  const innerH = boxH - padY - 8;
-  const midY = by + padY + innerH / 2;
-
-  const tStart = seg[0].t;
-  const tEnd   = seg[seg.length - 1].t;
-  const tSpan  = (tEnd - tStart) || 1;
-
-  const scaleX = innerW / tSpan;
-  const scaleY = innerH * 0.40;
-
-  const path = new Path2D();
-  for (let i = 0; i < seg.length; i++) {
-    const s = seg[i];
-    const px = bx + padX + (s.t - tStart) * scaleX;
-    const py = midY - s.v * scaleY;
-    if (i === 0) path.moveTo(px, py);
-    else path.lineTo(px, py);
-  }
-
-  ctx.lineCap  = 'round';
-  ctx.lineJoin = 'round';
-  ctx.strokeStyle = '#fff';
-
-  const layers = [
-    { w: 9,  a: 0.05 },
-    { w: 4.5,a: 0.15 },
-    { w: 2.2,a: 0.45 },
-    { w: 1,  a: 1.00 }
-  ];
-
-  for (let i = 0; i < layers.length; i++) {
-    ctx.globalAlpha = layers[i].a;
-    ctx.lineWidth   = layers[i].w;
-    ctx.stroke(path);
-  }
-
-  ctx.globalAlpha = 1;
-  ctx.restore();
-}
-
-/* ==========================================================
-   渲染
-========================================================== */
-function render(dtSec) {
-  ctx.fillStyle = '#000';
-  ctx.fillRect(0, 0, W, H);
-
-  drawGrid();
-  drawWave();
-  drawMarks();
-  drawSparks(dtSec);
-  drawPickerCrosshair();
-  drawMagnify();
-}
-
-/* ==========================================================
-   主循环
-========================================================== */
-let lastT = 0;
-
-function loop(now) {
-  if (!lastT) lastT = now;
-  let dt = now - lastT;
-  lastT = now;
-
-  if (dt < 0)  dt = 0;
-  if (dt > 50) dt = 50;
-
-  update(dt);
-  render(dt / 1000);
-
-  requestAnimationFrame(loop);
-}
-
-/* ==========================================================
-   DOM 引用
-========================================================== */
-const btnConn  = document.getElementById('btnConnect');
-const statusEl = document.getElementById('status');
-const speedEl  = document.getElementById('speed');
-const speedVal = document.getElementById('speedVal');
-const bpmVal   = document.getElementById('bpmVal');
-const srcTag   = document.getElementById('srcTag');
-
-const aboutBtn     = document.getElementById('aboutBtn');
-const settingsBtn  = document.getElementById('settingsBtn');
-
-const aboutPanel    = document.getElementById('aboutPanel');
-const settingsPanel = document.getElementById('settingsPanel');
-const helpPanel     = document.getElementById('helpPanel');
-
-const aboutClose    = document.getElementById('aboutClose');
-const settingsClose = document.getElementById('settingsClose');
-const helpClose     = document.getElementById('helpClose');
-
-const qqLink    = document.getElementById('qqLink');
-const showHelp  = document.getElementById('showHelp');
-const clearMarks= document.getElementById('clearMarks');
-
-const pickHintEl = document.getElementById('pickHint');
-
-/* 设置控件 */
-const setGlass      = document.getElementById('setGlass');
-const setGlassAlpha = document.getElementById('setGlassAlpha');
-const glassAlphaRow = document.getElementById('glassAlphaRow');
-const glassAlphaHint= document.getElementById('glassAlphaHint');
-
-const setParticles  = document.getElementById('setParticles');
-const setMagnify    = document.getElementById('setMagnify');
-const setMark       = document.getElementById('setMark');
-const setSway       = document.getElementById('setSway');
-const setDensity    = document.getElementById('setDensity');
-const setSignal     = document.getElementById('setSignal');
-const setSigStrength= document.getElementById('setSigStrength');
-const setFullDist   = document.getElementById('setFullDist');
-const setAnchor     = document.getElementById('setAnchor');
-const setRadius     = document.getElementById('setRadius');
-const pickAnchorBtn = document.getElementById('pickAnchor');
-
-const anchorRow       = document.getElementById('anchorRow');
-const customAnchorRow = document.getElementById('customAnchorRow');
-const radiusRow       = document.getElementById('radiusRow');
-const customAnchorHint= document.getElementById('customAnchorHint');
-const radiusHint      = document.getElementById('radiusHint');
-
-const colorRow       = document.getElementById('colorRow');
-const sigStrengthRow = document.getElementById('sigStrengthRow');
-
-/* ==========================================================
-   液态玻璃开关与透明度
-========================================================== */
-function applyGlass() {
-  if (settings.glass) {
-    document.body.classList.add('liquid-glass');
-    // 显示透明度调节行
-    glassAlphaRow.style.display = '';
-    // 应用透明度到 CSS 变量
-    const alpha = settings.glassAlpha; // 0 ~ 1
-    document.documentElement.style.setProperty('--glass-alpha', alpha);
-    glassAlphaHint.textContent = Math.round(alpha * 100) + '%';
-  } else {
-    document.body.classList.remove('liquid-glass');
-    glassAlphaRow.style.display = 'none';
+  100%{
+    opacity:0;
+    transform:scale(3.4);
+    border-width:.5px;
   }
 }
 
-function updateGlassAlpha(val) {
-  settings.glassAlpha = val;
-  document.documentElement.style.setProperty('--glass-alpha', val);
-  glassAlphaHint.textContent = Math.round(val * 100) + '%';
+/* ================= 拾取位置提示 ================= */
+.pickHint{
+  position:fixed;
+  left:50%;top:calc(50% + 130px);
+  transform:translate(-50%, 0);
+  z-index:15;
+  padding:12px 22px;
+  background:rgba(255,255,255,.1);
+  border:1px solid rgba(255,255,255,.35);
+  border-radius:100px;
+  color:#fff;
+  font-size:13px;
+  letter-spacing:.06em;
+  text-align:center;
+  backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px);
+  box-shadow:0 12px 40px rgba(0,0,0,.6);
+  opacity:0;pointer-events:none;
+  transition:opacity .28s ease, transform .28s ease;
+}
+.pickHint.show{
+  opacity:1;
+  transform:translate(-50%, -8px);
+}
+.pickHintSub{
+  display:block;
+  margin-top:5px;
+  font-size:10px;
+  letter-spacing:.16em;
+  color:rgba(255,255,255,.5);
+}
+body.picking canvas{cursor:crosshair}
+
+/* ================= 顶部按钮 ================= */
+#topBar{
+  position:fixed;right:clamp(16px,3.2vw,40px);top:clamp(14px,2.6vh,32px);
+  z-index:6;
+  display:flex;gap:8px;
+}
+.topBtn{
+  position:relative;
+  padding:9px 18px;
+  border-radius:100px;
+  border:1px solid rgba(255,255,255,.22);
+  background:rgba(255,255,255,.04);
+  color:#d8d8d8;
+  font-size:12px;letter-spacing:.16em;font-weight:500;
+  cursor:pointer;transition:.22s;
+  backdrop-filter:blur(10px);-webkit-backdrop-filter:blur(10px);
+  font-family:inherit;
+  overflow:hidden;
+}
+.topBtn:hover{background:rgba(255,255,255,.12);border-color:rgba(255,255,255,.45);color:#fff}
+.topBtn:active{transform:scale(.96)}
+
+/* ================= 模态面板 ================= */
+.modal{
+  position:fixed;inset:0;z-index:20;
+  display:flex;align-items:center;justify-content:center;
+  padding:20px;
+  background:rgba(0,0,0,.25);
+  backdrop-filter:blur(2px);-webkit-backdrop-filter:blur(2px);
+  opacity:0;pointer-events:none;
+  transition:opacity .3s ease;
+}
+.modal.show{opacity:1;pointer-events:auto}
+
+.modalCard{
+  position:relative;
+  width:min(600px,100%);
+  max-height:82vh;overflow-y:auto;
+  padding:clamp(24px,4vw,38px);
+  background:rgba(10,10,10,.86);
+  border:1px solid rgba(255,255,255,.14);
+  border-radius:22px;
+  transform:translateY(16px) scale(.98);
+  transition:transform .34s cubic-bezier(.22,1,.36,1);
+  box-shadow:0 30px 90px rgba(0,0,0,.9);
+  backdrop-filter:blur(20px) saturate(1.4);
+  -webkit-backdrop-filter:blur(20px) saturate(1.4);
+  overflow-x:hidden;
+}
+.modal.show .modalCard{transform:translateY(0) scale(1)}
+.modalCard::-webkit-scrollbar{width:5px}
+.modalCard::-webkit-scrollbar-thumb{background:rgba(255,255,255,.18);border-radius:4px}
+
+.modalClose{
+  position:absolute;right:16px;top:16px;
+  width:34px;height:34px;border-radius:50%;
+  border:1px solid rgba(255,255,255,.16);
+  background:transparent;color:#999;
+  font-size:15px;line-height:1;cursor:pointer;
+  transition:.2s;font-family:inherit;
+  z-index:3;
+}
+.modalClose:hover{background:rgba(255,255,255,.1);color:#fff;border-color:rgba(255,255,255,.4)}
+
+.modalTitle{
+  font-size:23px;font-weight:600;letter-spacing:.01em;color:#fff;
+}
+.modalSub{
+  margin-top:7px;font-size:11px;letter-spacing:.22em;
+  color:#555;text-transform:uppercase;
+  font-family:ui-monospace,"SF Mono",Menlo,monospace;
 }
 
-/* ==========================================================
-   模态面板控制
-========================================================== */
-function openModal(el)  { el.classList.add('show'); }
-function closeModal(el) { el.classList.remove('show'); }
-function closeAllModals() {
-  closeModal(aboutPanel);
-  closeModal(settingsPanel);
-  closeModal(helpPanel);
+.modalSection{margin-top:28px}
+.modalSection h3{
+  margin:0 0 11px;font-size:11px;letter-spacing:.24em;
+  color:#7a7a7a;text-transform:uppercase;font-weight:600;
+  font-family:ui-monospace,"SF Mono",Menlo,monospace;
+}
+.modalSection p{
+  margin:0;font-size:13.5px;line-height:1.8;color:#a4a4a4;
+}
+.modalSection p.note{
+  font-size:12px;color:#6e6e6e;margin-bottom:16px;line-height:1.7;
+}
+.modalSection p b{color:#e8e8e8;font-weight:600}
+
+/* 设备分组 */
+.devGrid{
+  display:grid;
+  grid-template-columns:repeat(auto-fill,minmax(158px,1fr));
+  gap:10px;
+}
+.devGroup{
+  padding:13px 15px 14px;
+  border:1px solid rgba(255,255,255,.09);
+  border-radius:12px;
+  background:rgba(255,255,255,.018);
+  transition:.2s;
+}
+.devGroup:hover{background:rgba(255,255,255,.05);border-color:rgba(255,255,255,.2)}
+.devGroup h4{
+  margin:0 0 8px;font-size:12px;font-weight:600;
+  color:#efefef;letter-spacing:.04em;
+  display:flex;align-items:center;gap:7px;
+}
+.devGroup h4::before{
+  content:'';width:5px;height:5px;border-radius:50%;
+  background:#fff;flex:0 0 auto;
+  box-shadow:0 0 8px rgba(255,255,255,.9);
+}
+.devGroup ul{margin:0;padding:0;list-style:none}
+.devGroup li{
+  font-size:11.5px;line-height:1.85;color:#8e8e8e;
+  padding-left:12px;position:relative;
+}
+.devGroup li::before{
+  content:'·';position:absolute;left:2px;color:#4a4a4a;
+}
+.devGroup.hw{border-color:rgba(255,255,255,.26);background:rgba(255,255,255,.045)}
+
+/* 胶囊链接（邮箱 / QQ / GitHub） */
+.pillLink{
+  display:inline-flex;
+  align-items:center;
+  gap:9px;
+  color:#e8e8e8;
+  font-family:ui-monospace,"SF Mono",Menlo,monospace;
+  font-size:13px;
+  letter-spacing:.03em;
+  text-decoration:none;
+  padding:7px 15px;
+  border:1px solid rgba(255,255,255,.16);
+  border-radius:9px;
+  background:rgba(255,255,255,.03);
+  transition:.2s;
+  cursor:pointer;
+  word-break:break-all;
+}
+.pillLink:hover{
+  color:#fff;
+  border-color:rgba(255,255,255,.45);
+  background:rgba(255,255,255,.09);
+}
+.mailLink::before{content:'✉';opacity:.65}
+.qqLink::before{content:'💬';opacity:.75;font-size:12px}
+.ghLink::before{content:'⌥';opacity:.75;font-size:13px}
+
+.qqLink.copied{
+  border-color:rgba(255,255,255,.6);
+  background:rgba(255,255,255,.14);
+  color:#fff;
 }
 
-aboutBtn.addEventListener('click', function () {
-  closeModal(settingsPanel);
-  closeModal(helpPanel);
-  openModal(aboutPanel);
-});
+/* ================= 设置项 ================= */
+.settingRow{
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap:14px;
+  padding:11px 0;
+  border-bottom:1px solid rgba(255,255,255,.06);
+  transition:opacity .24s ease;
+}
+.settingRow:last-child{border-bottom:none}
+.settingRow.dimmed{
+  opacity:.28;
+  pointer-events:none;
+  user-select:none;
+}
+.settingLabel{display:flex;flex-direction:column;gap:3px;min-width:0}
+.settingName{font-size:13px;color:#e0e0e0;letter-spacing:.02em}
+.settingHint{font-size:11px;color:#5d5d5d;letter-spacing:.02em}
 
-settingsBtn.addEventListener('click', function () {
-  closeModal(aboutPanel);
-  closeModal(helpPanel);
-  openModal(settingsPanel);
-});
-
-aboutClose.addEventListener('click', function () { closeModal(aboutPanel); });
-settingsClose.addEventListener('click', function () { closeModal(settingsPanel); });
-helpClose.addEventListener('click', function () { closeModal(helpPanel); });
-
-[aboutPanel, settingsPanel, helpPanel].forEach(function (p) {
-  p.addEventListener('click', function (e) {
-    if (e.target === p) closeModal(p);
-  });
-});
-
-document.addEventListener('keydown', function (e) {
-  if (e.key === 'Escape') {
-    if (pickingAnchor) { exitPicking(); return; }
-    closeAllModals();
-  }
-});
-
-showHelp.addEventListener('click', function () {
-  closeModal(settingsPanel);
-  openModal(helpPanel);
-});
-
-/* ==========================================================
-   拾取自定义锚点
-========================================================== */
-function enterPicking() {
-  pickingAnchor = true;
-  document.body.classList.add('picking');
-  pickHintEl.classList.add('show');
-  closeModal(settingsPanel);
+/* 开关 */
+.switch{
+  position:relative;
+  display:inline-block;
+  width:42px;height:23px;
+  flex:0 0 auto;
+}
+.switch input{opacity:0;width:0;height:0;position:absolute}
+.switch .slider{
+  position:absolute;inset:0;
+  background:rgba(255,255,255,.13);
+  border:1px solid rgba(255,255,255,.14);
+  border-radius:23px;
+  transition:.24s;
+  cursor:pointer;
+}
+.switch .slider::before{
+  content:'';
+  position:absolute;
+  width:15px;height:15px;
+  left:3px;top:50%;
+  transform:translateY(-50%);
+  background:#8a8a8a;
+  border-radius:50%;
+  transition:.24s;
+}
+.switch input:checked + .slider{
+  background:#fff;
+  border-color:#fff;
+}
+.switch input:checked + .slider::before{
+  background:#000;
+  transform:translate(19px,-50%);
 }
 
-function exitPicking() {
-  pickingAnchor = false;
-  document.body.classList.remove('picking');
-  pickHintEl.classList.remove('show');
+/* 颜色选择 */
+.colorRow{
+  display:flex;
+  gap:8px;
+  flex-wrap:wrap;
+  flex:0 0 auto;
+}
+.colorDot{
+  width:24px;height:24px;
+  border-radius:50%;
+  border:2px solid rgba(255,255,255,.18);
+  padding:0;
+  cursor:pointer;
+  transition:.18s;
+  flex:0 0 auto;
+}
+.colorDot:hover{
+  transform:scale(1.12);
+  border-color:rgba(255,255,255,.55);
+}
+.colorDot.active{
+  border-color:#fff;
+  box-shadow:0 0 0 2px rgba(255,255,255,.28);
 }
 
-function updateCustomAnchorHint() {
-  const x = Math.round(settings.customAnchor.x * 100);
-  const y = Math.round(settings.customAnchor.y * 100);
-  customAnchorHint.textContent = '当前：' + x + '% , ' + y + '%';
+/* 下拉选择 */
+.selectBox{
+  appearance:none;-webkit-appearance:none;
+  background:rgba(255,255,255,.06);
+  border:1px solid rgba(255,255,255,.18);
+  color:#e8e8e8;
+  padding:7px 28px 7px 12px;
+  border-radius:9px;
+  font-size:12.5px;
+  font-family:inherit;
+  outline:none;
+  cursor:pointer;
+  flex:0 0 auto;
+  background-image:url("data:image/svg+xml;charset=UTF-8,%3csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 8'%3e%3cpath fill='%23aaaaaa' d='M6 8L0 0h12z'/%3e%3c/svg%3e");
+  background-repeat:no-repeat;
+  background-position:right 10px center;
+  background-size:9px;
+  min-width:120px;
+}
+.selectBox:focus{border-color:rgba(255,255,255,.5)}
+.selectBox option{background:#0a0a0a;color:#e8e8e8}
+
+/* 迷你滑块（分布半径 / 透明度） */
+.miniRange{
+  -webkit-appearance:none;appearance:none;
+  width:110px;
+  height:2px;
+  border-radius:2px;
+  background:linear-gradient(90deg,#3a3a3a,#fff);
+  outline:none;cursor:pointer;
+  flex:0 0 auto;
+}
+.miniRange::-webkit-slider-thumb{
+  -webkit-appearance:none;width:12px;height:12px;border-radius:50%;
+  background:#fff;border:none;
+  box-shadow:0 0 0 3px rgba(255,255,255,.12),0 0 10px rgba(255,255,255,.6);
+}
+.miniRange::-moz-range-thumb{
+  width:12px;height:12px;border-radius:50%;border:none;background:#fff;
+  box-shadow:0 0 0 3px rgba(255,255,255,.12),0 0 10px rgba(255,255,255,.6);
 }
 
-/* ==========================================================
-   根据「全屏分布」状态更新 UI
-========================================================== */
-function updateDistUI() {
-  if (settings.fullDist) {
-    if (pickingAnchor) exitPicking();
+/* 小按钮 / 全宽按钮 */
+.smallBtn,
+.fullBtn{
+  font-family:inherit;
+  cursor:pointer;
+  transition:.2s;
+  border-radius:9px;
+  border:1px solid rgba(255,255,255,.2);
+  background:rgba(255,255,255,.04);
+  color:#d8d8d8;
+}
+.smallBtn{
+  font-size:11.5px;
+  padding:7px 13px;
+  letter-spacing:.03em;
+}
+.smallBtn:hover{
+  background:rgba(255,255,255,.12);
+  border-color:rgba(255,255,255,.45);
+  color:#fff;
+}
+.fullBtn{
+  width:100%;
+  font-size:13px;
+  padding:10px 14px;
+  letter-spacing:.05em;
+  font-weight:600;
+}
+.fullBtn:hover{
+  background:rgba(255,255,255,.14);
+  border-color:rgba(255,255,255,.5);
+  color:#fff;
+}
+.fullBtn:active,.smallBtn:active{transform:scale(.985)}
 
-    anchorRow.classList.add('dimmed');
-    radiusRow.classList.add('dimmed');
-    customAnchorRow.classList.add('dimmed');
+/* ================= 底部面板 ================= */
+#panel{
+  position:fixed;left:50%;bottom:max(16px,env(safe-area-inset-bottom));
+  transform:translateX(-50%);
+  width:min(440px,calc(100vw - 26px));
+  padding:13px 16px 11px;
+  /* 默认模式：降低不透明度，减轻模糊，让粒子透出 */
+  background:rgba(10,10,10,.45);
+  border:1px solid rgba(255,255,255,.11);
+  border-radius:18px;
+  backdrop-filter:blur(12px) saturate(1.2);
+  -webkit-backdrop-filter:blur(12px) saturate(1.2);
+  box-shadow:0 18px 50px rgba(0,0,0,.5);
+  z-index:4;
+}
+#btnConnect{
+  width:100%;padding:11px 14px;
+  border-radius:11px;
+  border:1px solid rgba(255,255,255,.26);
+  background:rgba(255,255,255,.05);
+  color:#e8e8e8;font-size:13.5px;font-weight:600;letter-spacing:.05em;
+  cursor:pointer;transition:.2s;font-family:inherit;
+}
+#btnConnect:hover{background:rgba(255,255,255,.14);border-color:rgba(255,255,255,.5);color:#fff}
+#btnConnect:active{transform:scale(.985)}
+#btnConnect[data-on="1"]{
+  background:rgba(255,255,255,.9);
+  border-color:#fff;color:#000;
+}
+#btnConnect[data-on="1"]:hover{background:#fff}
+#btnConnect:disabled{opacity:.3;cursor:not-allowed}
 
-    setAnchor.disabled = true;
-    setRadius.disabled = true;
-    pickAnchorBtn.disabled = true;
-  } else {
-    anchorRow.classList.remove('dimmed');
-    radiusRow.classList.remove('dimmed');
-    customAnchorRow.classList.remove('dimmed');
+.row{display:flex;align-items:center;gap:12px;margin-top:12px;font-size:12px;color:#6e6e6e}
+.row .lbl{flex:0 0 auto;letter-spacing:.1em}
+input[type=range]{
+  -webkit-appearance:none;appearance:none;
+  flex:1 1 auto;height:2px;border-radius:2px;outline:none;cursor:pointer;
+  background:linear-gradient(90deg,#3a3a3a,#fff);
+}
+input[type=range]::-webkit-slider-thumb{
+  -webkit-appearance:none;width:14px;height:14px;border-radius:50%;
+  background:#fff;border:none;
+  box-shadow:0 0 0 3px rgba(255,255,255,.12),0 0 14px rgba(255,255,255,.7);
+}
+input[type=range]::-moz-range-thumb{
+  width:14px;height:14px;border-radius:50%;border:none;background:#fff;
+  box-shadow:0 0 0 3px rgba(255,255,255,.12),0 0 14px rgba(255,255,255,.7);
+}
+input[type=range]:disabled{opacity:.24;cursor:not-allowed}
+#speedVal{
+  flex:0 0 auto;min-width:76px;text-align:right;
+  font-family:ui-monospace,"SF Mono",Menlo,monospace;
+  font-size:11.5px;color:#9a9a9a;font-variant-numeric:tabular-nums;
+}
+#status{
+  margin-top:10px;font-size:11px;line-height:1.5;
+  color:#4d4d4d;text-align:center;letter-spacing:.03em;
+}
+#status.warn{color:#d8b070}
+#status.ok{color:#e0e0e0}
 
-    setAnchor.disabled = false;
-    setRadius.disabled = false;
-    pickAnchorBtn.disabled = false;
 
-    if (settings.anchor === 'custom') {
-      customAnchorRow.style.display = '';
-      updateCustomAnchorHint();
-    } else {
-      customAnchorRow.style.display = 'none';
-    }
-  }
+/* ================================================================
+   ================= 液态玻璃（Liquid Glass） ======================
+   默认关闭，通过 body.liquid-glass 类启用
+================================================================ */
+
+/* ---- 顶部胶囊按钮 ---- */
+body.liquid-glass .topBtn{
+  background:rgba(var(--glass-color), calc(var(--glass-alpha) * 0.7));
+  border:1px solid rgba(255,255,255,.22);
+  color:#f0f0f0;
+  backdrop-filter:blur(28px) saturate(1.9) brightness(1.08);
+  -webkit-backdrop-filter:blur(28px) saturate(1.9) brightness(1.08);
+  box-shadow:
+    0 8px 28px rgba(0,0,0,.45),
+    0 0 0 .5px rgba(255,255,255,.05),
+    inset 0 1px 0 rgba(255,255,255,.35),
+    inset 0 -1px 0 rgba(255,255,255,.05),
+    inset 1px 0 0 rgba(255,255,255,.09),
+    inset -1px 0 0 rgba(255,255,255,.09);
+  text-shadow:0 1px 8px rgba(255,255,255,.22);
+}
+body.liquid-glass .topBtn::before{
+  content:'';
+  position:absolute;
+  top:0;left:16%;right:16%;
+  height:1px;
+  background:linear-gradient(90deg,transparent,rgba(255,255,255,.85),transparent);
+  pointer-events:none;
+  border-radius:inherit;
+}
+body.liquid-glass .topBtn::after{
+  content:'';
+  position:absolute;
+  inset:0;
+  border-radius:inherit;
+  background:
+    radial-gradient(ellipse 120% 70% at 20% 0%, rgba(255,255,255,.16), transparent 55%),
+    radial-gradient(ellipse 100% 60% at 85% 100%, rgba(180,200,255,.08), transparent 55%);
+  pointer-events:none;
+  mix-blend-mode:screen;
+}
+body.liquid-glass .topBtn:hover{
+  background:rgba(var(--glass-color), calc(var(--glass-alpha) * 0.9));
+  border-color:rgba(255,255,255,.4);
+  color:#fff;
 }
 
-/* ==========================================================
-   设置项绑定
-========================================================== */
-setGlass.checked       = settings.glass;
-setParticles.checked   = settings.particles;
-setMagnify.checked     = settings.magnify;
-setMark.checked        = settings.mark;
-setSignal.checked      = settings.signal;
-setSigStrength.checked = settings.sigStrength;
-setFullDist.checked    = settings.fullDist;
-setSway.value          = settings.sway;
-setDensity.value       = String(settings.density);
-setAnchor.value        = settings.anchor;
-setRadius.value        = String(settings.radiusPct);
-setGlassAlpha.value    = String(settings.glassAlpha * 100);
-
-radiusHint.textContent = '屏幕短边的 ' + settings.radiusPct + '%';
-updateCustomAnchorHint();
-updateDistUI();
-applyGlass();
-
-setGlass.addEventListener('change', function () {
-  settings.glass = setGlass.checked;
-  applyGlass();
-});
-
-setGlassAlpha.addEventListener('input', function () {
-  const val = parseInt(setGlassAlpha.value, 10) / 100;
-  updateGlassAlpha(val);
-});
-
-setParticles.addEventListener('change', function () {
-  settings.particles = setParticles.checked;
-});
-
-setMagnify.addEventListener('change', function () {
-  settings.magnify = setMagnify.checked;
-});
-
-setMark.addEventListener('change', function () {
-  settings.mark = setMark.checked;
-});
-
-setSignal.addEventListener('change', function () {
-  settings.signal = setSignal.checked;
-});
-
-setSigStrength.addEventListener('change', function () {
-  settings.sigStrength = setSigStrength.checked;
-  if (settings.sigStrength) sigStrengthRow.classList.remove('hide');
-  else sigStrengthRow.classList.add('hide');
-});
-
-setFullDist.addEventListener('change', function () {
-  settings.fullDist = setFullDist.checked;
-  updateDistUI();
-});
-
-setSway.addEventListener('change', function () {
-  settings.sway = setSway.value;
-});
-
-setDensity.addEventListener('change', function () {
-  settings.density = parseFloat(setDensity.value) || 1.6;
-});
-
-setAnchor.addEventListener('change', function () {
-  settings.anchor = setAnchor.value;
-
-  if (settings.anchor === 'custom') {
-    customAnchorRow.style.display = '';
-    updateCustomAnchorHint();
-    enterPicking();
-  } else {
-    customAnchorRow.style.display = 'none';
-  }
-});
-
-setRadius.addEventListener('input', function () {
-  settings.radiusPct = parseInt(setRadius.value, 10) || 60;
-  radiusHint.textContent = '屏幕短边的 ' + settings.radiusPct + '%';
-});
-
-pickAnchorBtn.addEventListener('click', function () {
-  settings.anchor = 'custom';
-  setAnchor.value = 'custom';
-  customAnchorRow.style.display = '';
-  enterPicking();
-});
-
-colorRow.addEventListener('click', function (e) {
-  const btn = e.target.closest('.colorDot');
-  if (!btn) return;
-
-  const all = colorRow.querySelectorAll('.colorDot');
-  for (let i = 0; i < all.length; i++) all[i].classList.remove('active');
-  btn.classList.add('active');
-
-  settings.particleColor = btn.dataset.color;
-});
-
-clearMarks.addEventListener('click', function () {
-  marks.length = 0;
-});
-
-/* ==========================================================
-   QQ 群：点击复制群号
-========================================================== */
-function fallbackCopy(text, cb) {
-  try {
-    const ta = document.createElement('textarea');
-    ta.value = text;
-    ta.style.position = 'fixed';
-    ta.style.opacity  = '0';
-    document.body.appendChild(ta);
-    ta.select();
-    document.execCommand('copy');
-    document.body.removeChild(ta);
-    cb && cb();
-  } catch (e) {}
+/* ---- 底部控制面板（核心修改：降低模糊度，让粒子透出） ---- */
+body.liquid-glass #panel{
+  background:rgba(var(--glass-color), var(--glass-alpha));
+  border:1px solid rgba(255,255,255,.18);
+  /* 从 32px 降低到 14px，让底部的粒子形状清晰可见 */
+  backdrop-filter:blur(14px) saturate(1.9) brightness(1.06);
+  -webkit-backdrop-filter:blur(14px) saturate(1.9) brightness(1.06);
+  box-shadow:
+    0 24px 70px rgba(0,0,0,.6),
+    0 0 0 .5px rgba(255,255,255,.04),
+    inset 0 1px 0 rgba(255,255,255,.3),
+    inset 0 -1px 0 rgba(255,255,255,.04),
+    inset 1px 0 0 rgba(255,255,255,.08),
+    inset -1px 0 0 rgba(255,255,255,.08),
+    inset 0 0 70px rgba(255,255,255,.03);
+  overflow:hidden;
+}
+body.liquid-glass #panel::before{
+  content:'';
+  position:absolute;
+  top:0;left:12%;right:12%;
+  height:1px;
+  background:linear-gradient(90deg,transparent,rgba(255,255,255,.8),transparent);
+  pointer-events:none;
+  z-index:1;
+}
+body.liquid-glass #panel::after{
+  content:'';
+  position:absolute;
+  inset:0;
+  border-radius:inherit;
+  background:
+    radial-gradient(ellipse 110% 60% at 18% 0%, rgba(255,255,255,.12), transparent 55%),
+    radial-gradient(ellipse 90% 55% at 85% 100%, rgba(170,200,255,.06), transparent 55%);
+  pointer-events:none;
+  z-index:0;
+}
+body.liquid-glass #panel > *{
+  position:relative;
+  z-index:2;
+}
+body.liquid-glass #btnConnect{
+  background:rgba(255,255,255,.08);
+  border:1px solid rgba(255,255,255,.3);
+  backdrop-filter:blur(14px);
+  -webkit-backdrop-filter:blur(14px);
+  box-shadow:
+    0 4px 16px rgba(0,0,0,.35),
+    inset 0 1px 0 rgba(255,255,255,.35),
+    inset 0 -1px 0 rgba(255,255,255,.05);
+}
+body.liquid-glass #btnConnect:hover{
+  background:rgba(255,255,255,.16);
+  border-color:rgba(255,255,255,.55);
+}
+body.liquid-glass #btnConnect[data-on="1"]{
+  background:rgba(255,255,255,.92);
+  border-color:#fff;
+  color:#000;
+  box-shadow:
+    0 6px 24px rgba(255,255,255,.25),
+    inset 0 1px 0 rgba(255,255,255,.9),
+    inset 0 -1px 0 rgba(0,0,0,.12);
 }
 
-if (qqLink) {
-  qqLink.addEventListener('click', function () {
-    const qq = qqLink.dataset.qq;
-
-    const done = function () {
-      const old = qqLink.textContent;
-      qqLink.classList.add('copied');
-      qqLink.textContent = '已复制群号 ✓';
-      setTimeout(function () {
-        qqLink.classList.remove('copied');
-        qqLink.textContent = old;
-      }, 1400);
-    };
-
-    if (navigator.clipboard && navigator.clipboard.writeText) {
-      navigator.clipboard.writeText(qq).then(done).catch(function () {
-        fallbackCopy(qq, done);
-      });
-    } else {
-      fallbackCopy(qq, done);
-    }
-  });
+/* ---- 模态遮罩：极低透明度，让粒子完全透出 ---- */
+body.liquid-glass .modal{
+  background:rgba(0,0,0,.08);
+  backdrop-filter:blur(1px);
+  -webkit-backdrop-filter:blur(1px);
 }
 
-/* ==========================================================
-   Canvas 事件
-========================================================== */
-canvas.addEventListener('mousemove', function (e) {
-  mouseX = e.clientX;
-  mouseY = e.clientY;
-});
-
-canvas.addEventListener('click', function (e) {
-  const x = e.clientX;
-  const y = e.clientY;
-
-  if (pickingAnchor) {
-    settings.customAnchor = {
-      x: x / W,
-      y: y / H
-    };
-    updateCustomAnchorHint();
-    exitPicking();
-    return;
-  }
-
-  if (!settings.mark) return;
-
-  if (y < baseY - A * 1.7 || y > baseY + A * 1.7) return;
-
-  if (settings.magnify) {
-    const boxW = Math.min(260, W * 0.36);
-    const boxH = boxW * 0.62;
-    const bx = W - boxW - 20;
-    const by = H - boxH - 140;
-    if (x >= bx && x <= bx + boxW && y >= by && y <= by + boxH) return;
-  }
-
-  const t = simTime - (W - x) / PX_PER_MS;
-  marks.push({ t: t });
-});
-
-/* ==========================================================
-   蓝牙心率
-========================================================== */
-function setStatus(text, cls) {
-  statusEl.textContent = text;
-  statusEl.className = cls || '';
+/* ---- 模态卡片（设置/关于/说明） ---- */
+body.liquid-glass .modalCard{
+  background:rgba(var(--glass-color), var(--glass-alpha));
+  border:1px solid rgba(255,255,255,.2);
+  backdrop-filter:blur(36px) saturate(1.9) brightness(1.08);
+  -webkit-backdrop-filter:blur(36px) saturate(1.9) brightness(1.08);
+  box-shadow:
+    0 32px 100px rgba(0,0,0,.7),
+    0 0 0 .5px rgba(255,255,255,.06),
+    inset 0 1px 0 rgba(255,255,255,.28),
+    inset 0 -1px 0 rgba(255,255,255,.04),
+    inset 1px 0 0 rgba(255,255,255,.08),
+    inset -1px 0 0 rgba(255,255,255,.08),
+    inset 0 0 90px rgba(255,255,255,.025);
+}
+body.liquid-glass .modalCard::before{
+  content:'';
+  position:absolute;
+  top:0;left:14%;right:14%;
+  height:1px;
+  background:linear-gradient(90deg,transparent,rgba(255,255,255,.75),transparent);
+  pointer-events:none;
+  z-index:2;
+}
+body.liquid-glass .modalCard::after{
+  content:'';
+  position:absolute;
+  inset:0;
+  border-radius:inherit;
+  background:
+    radial-gradient(ellipse 130% 60% at 15% -5%, rgba(255,255,255,.14), transparent 55%),
+    radial-gradient(ellipse 90% 50% at 90% 105%, rgba(170,200,255,.07), transparent 55%);
+  pointer-events:none;
+  z-index:0;
+}
+body.liquid-glass .modalCard > *{
+  position:relative;
+  z-index:1;
 }
 
-function parseHR(event) {
-  const dv = event.target.value;
-  if (!dv || dv.byteLength < 2) return;
-
-  const flags = dv.getUint8(0);
-  const is16  = (flags & 0x01) !== 0;
-  const hr    = is16 ? dv.getUint16(1, true) : dv.getUint8(1);
-
-  if (hr >= 25 && hr <= 230) {
-    realBpm   = hr;
-    usingReal = true;
-
-    lastPacketTime = performance.now();
-    signalStrength = Math.min(100, signalStrength + 12);
-  }
+/* 关闭按钮玻璃化 */
+body.liquid-glass .modalClose{
+  background:rgba(255,255,255,.06);
+  border:1px solid rgba(255,255,255,.22);
+  backdrop-filter:blur(10px);
+  -webkit-backdrop-filter:blur(10px);
+  color:#ddd;
+  box-shadow:inset 0 1px 0 rgba(255,255,255,.25);
+}
+body.liquid-glass .modalClose:hover{
+  background:rgba(255,255,255,.16);
+  border-color:rgba(255,255,255,.5);
+  color:#fff;
 }
 
-async function connect() {
-  if (!navigator.bluetooth) {
-    setStatus('当前浏览器不支持 Web Bluetooth', 'warn');
-    return;
-  }
-
-  try {
-    btnConn.disabled = true;
-    setStatus('正在搜索附近的心率设备…');
-
-    const device = await navigator.bluetooth.requestDevice({
-      filters: [{ services: ['heart_rate'] }]
-    });
-
-    device.addEventListener('gattserverdisconnected', onDisconnected);
-    setStatus('正在连接 ' + (device.name || '未知设备') + ' …');
-
-    const server = await device.gatt.connect();
-    const svc    = await server.getPrimaryService('heart_rate');
-    const ch     = await svc.getCharacteristic('heart_rate_measurement');
-
-    await ch.startNotifications();
-    ch.addEventListener('characteristicvaluechanged', parseHR);
-
-    usingReal = true;
-    speedEl.disabled = true;
-
-    lastPacketTime = performance.now();
-
-    btnConn.textContent = '断开连接';
-    btnConn.dataset.on  = '1';
-    btnConn.disabled    = false;
-
-    srcTag.textContent = 'LIVE';
-    setStatus('已连接 · ' + (device.name || '心率设备') + ' · 实时接收中', 'ok');
-
-  } catch (err) {
-    btnConn.disabled = false;
-    usingReal = false;
-    speedEl.disabled = false;
-
-    if (err && err.name === 'NotFoundError') {
-      setStatus('已取消选择设备');
-    } else if (err && err.name === 'SecurityError') {
-      setStatus('需要 HTTPS 或 localhost 才能使用蓝牙', 'warn');
-    } else {
-      setStatus('连接失败：' + (err && err.message ? err.message : err), 'warn');
-    }
-  }
+/* ---- 设置项里的玻璃化元素 ---- */
+body.liquid-glass .devGroup{
+  background:rgba(255,255,255,.035);
+  border:1px solid rgba(255,255,255,.14);
+  backdrop-filter:blur(10px);
+  -webkit-backdrop-filter:blur(10px);
+  box-shadow:
+    inset 0 1px 0 rgba(255,255,255,.12),
+    0 2px 10px rgba(0,0,0,.2);
+}
+body.liquid-glass .devGroup:hover{
+  background:rgba(255,255,255,.075);
+  border-color:rgba(255,255,255,.26);
 }
 
-function onDisconnected() {
-  usingReal = false;
-  speedEl.disabled = false;
-  btnConn.textContent = '连接心率设备';
-  btnConn.dataset.on  = '0';
-  srcTag.textContent  = 'SIM';
-  setStatus('设备已断开 · 已切回模拟模式');
+body.liquid-glass .pillLink{
+  background:rgba(255,255,255,.06);
+  border:1px solid rgba(255,255,255,.22);
+  backdrop-filter:blur(10px);
+  -webkit-backdrop-filter:blur(10px);
+  box-shadow:inset 0 1px 0 rgba(255,255,255,.22);
+}
+body.liquid-glass .pillLink:hover{
+  background:rgba(255,255,255,.14);
+  border-color:rgba(255,255,255,.5);
 }
 
-btnConn.addEventListener('click', function () {
-  if (btnConn.dataset.on === '1') {
-    if (navigator.bluetooth && navigator.bluetooth.getDevices) {
-      navigator.bluetooth.getDevices().then(function (list) {
-        list.forEach(function (d) {
-          try { if (d.gatt && d.gatt.connected) d.gatt.disconnect(); } catch (e) {}
-        });
-      }).catch(function () {});
-    }
-    onDisconnected();
-    return;
-  }
-  connect();
-});
-
-/* ==========================================================
-   速度滑块
-========================================================== */
-speedEl.addEventListener('input', function () {
-  speed = parseFloat(speedEl.value) || 0;
-  speedVal.textContent = speed.toFixed(1) + ' km/h';
-});
-
-/* ==========================================================
-   初始化
-========================================================== */
-function init() {
-  if (!navigator.bluetooth) {
-    btnConn.disabled = true;
-    btnConn.textContent = '浏览器不支持 Web Bluetooth';
-    setStatus('请使用 Chrome / Edge（HTTPS 或 localhost）', 'warn');
-  } else if (location.protocol === 'file:') {
-    setStatus('提示：蓝牙需在 https 或 localhost 下使用', 'warn');
-  }
-
-  speedVal.textContent = speed.toFixed(1) + ' km/h';
-
-  resize();
-  nextSampleTime = 0;
-  simTime = 0;
-
-  requestAnimationFrame(loop);
+body.liquid-glass .selectBox{
+  background-color:rgba(255,255,255,.08);
+  border:1px solid rgba(255,255,255,.22);
+  backdrop-filter:blur(12px);
+  -webkit-backdrop-filter:blur(12px);
+  box-shadow:inset 0 1px 0 rgba(255,255,255,.2);
 }
 
-init();
+body.liquid-glass .smallBtn,
+body.liquid-glass .fullBtn{
+  background:rgba(255,255,255,.07);
+  border:1px solid rgba(255,255,255,.24);
+  backdrop-filter:blur(12px);
+  -webkit-backdrop-filter:blur(12px);
+  box-shadow:inset 0 1px 0 rgba(255,255,255,.25);
+  color:#f0f0f0;
+}
+body.liquid-glass .smallBtn:hover,
+body.liquid-glass .fullBtn:hover{
+  background:rgba(255,255,255,.16);
+  border-color:rgba(255,255,255,.5);
+  color:#fff;
+}
 
-})();
+body.liquid-glass .switch .slider{
+  background:rgba(255,255,255,.14);
+  border:1px solid rgba(255,255,255,.22);
+  box-shadow:inset 0 1px 0 rgba(255,255,255,.2);
+}
+body.liquid-glass .switch input:checked + .slider{
+  background:rgba(255,255,255,.95);
+  border-color:#fff;
+  box-shadow:
+    0 0 12px rgba(255,255,255,.45),
+    inset 0 1px 0 rgba(255,255,255,.95),
+    inset 0 -1px 0 rgba(0,0,0,.1);
+}
+
+body.liquid-glass .colorDot{
+  border:2px solid rgba(255,255,255,.28);
+  box-shadow:
+    0 2px 8px rgba(0,0,0,.35),
+    inset 0 1px 0 rgba(255,255,255,.35);
+}
+body.liquid-glass .colorDot.active{
+  border-color:#fff;
+  box-shadow:
+    0 0 0 2px rgba(255,255,255,.35),
+    0 0 12px rgba(255,255,255,.5),
+    inset 0 1px 0 rgba(255,255,255,.5);
+}
+
+body.liquid-glass .settingRow{
+  border-bottom-color:rgba(255,255,255,.09);
+}
+
+body.liquid-glass .modalSub{
+  color:#7a8699;
+}
+
+body.liquid-glass .modalSection h3{
+  color:#8a94a6;
+}
