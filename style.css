@@ -31,15 +31,13 @@ body::after{
     transparent 45%, rgba(0,0,0,.25) 78%, rgba(0,0,0,.55) 100%);
 }
 
-/* ============ Layer 3：DOM UI 覆盖层 ============ */
+/* ============ Layer 3：DOM UI ============ */
 #ui{
   position:fixed;
   inset:0;
   z-index:10;
-  pointer-events:none;   /* 默认穿透，点击空白处可触达 canvas */
+  pointer-events:none;
 }
-
-/* 只有真正需要交互的区域接收事件 */
 #ui #topBar,
 #ui #panel,
 #ui .modal.show{
@@ -167,24 +165,44 @@ body.picking #c{cursor:crosshair}
   z-index:6;
   display:flex;gap:8px;
 }
+
+/* 默认外观 */
 .topBtn{
+  position:relative;
   padding:9px 18px;border-radius:100px;
   border:1px solid rgba(255,255,255,.22);
   background:rgba(255,255,255,.04);
   color:#d8d8d8;
   font-size:12px;letter-spacing:.16em;font-weight:500;
-  cursor:pointer;transition:.22s;
+  cursor:pointer;transition:background .22s, border-color .22s, color .22s;
   font-family:inherit;
 }
-.topBtn:hover{background:rgba(255,255,255,.12);border-color:rgba(255,255,255,.45);color:#fff}
+.topBtn:hover{
+  background:rgba(255,255,255,.12);
+  border-color:rgba(255,255,255,.45);
+  color:#fff;
+}
 .topBtn:active{transform:scale(.96)}
+
+/* 液态玻璃模式下：让背景完全透明，由 WebGL 层提供玻璃效果 */
+body.liquid-glass .topBtn{
+  background:transparent;
+  border-color:rgba(255,255,255,.32);
+  color:#f2f2f2;
+  text-shadow:0 1px 6px rgba(0,0,0,.7);
+}
+body.liquid-glass .topBtn:hover{
+  background:rgba(255,255,255,.06);
+  border-color:rgba(255,255,255,.55);
+  color:#fff;
+}
 
 /* ================= 模态面板 ================= */
 .modal{
   position:fixed;inset:0;z-index:20;
   display:flex;align-items:center;justify-content:center;
   padding:20px;
-  background:rgba(0,0,0,.55);
+  background:rgba(0,0,0,.4);
   opacity:0;pointer-events:none;
   transition:opacity .3s ease;
 }
@@ -195,17 +213,26 @@ body.picking #c{cursor:crosshair}
   width:min(600px,100%);
   max-height:82vh;overflow-y:auto;
   padding:clamp(24px,4vw,38px);
-  background:rgba(10,10,10,.9);
+  background:rgba(10,10,10,.86);
   border:1px solid rgba(255,255,255,.14);
   border-radius:22px;
   transform:translateY(16px) scale(.98);
-  transition:transform .34s cubic-bezier(.22,1,.36,1);
+  transition:transform .34s cubic-bezier(.22,1,.36,1), background .3s;
   box-shadow:0 30px 90px rgba(0,0,0,.9);
   overflow-x:hidden;
 }
 .modal.show .modalCard{transform:translateY(0) scale(1)}
 .modalCard::-webkit-scrollbar{width:5px}
 .modalCard::-webkit-scrollbar-thumb{background:rgba(255,255,255,.18);border-radius:4px}
+
+/* 液态玻璃模式下：面板背景半透明，让 WebGL 玻璃效果透出 */
+body.liquid-glass .modalCard{
+  background:rgba(10,10,10,.42);
+  border-color:rgba(255,255,255,.22);
+  backdrop-filter:none;
+  -webkit-backdrop-filter:none;
+  text-shadow:0 1px 4px rgba(0,0,0,.5);
+}
 
 .modalClose{
   position:absolute;right:16px;top:16px;
