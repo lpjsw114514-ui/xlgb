@@ -2,48 +2,56 @@
 'use strict';
 
 /* ==========================================================
-   画布 / 尺寸
+   ================ 常量与状态 ==============================
 ========================================================== */
+const CW = 1080;          // Canvas 固定分辨率宽
+const CH = 1920;          // Canvas 固定分辨率高
+const ASPECT = CW / CH;   // 9:16
+
 const canvas = document.getElementById('c');
-const ctx    = canvas.getContext('2d');
+canvas.width  = CW;
+canvas.height = CH;
 
-let W = 0, H = 0, DPR = 1, cx = 0, cy = 0;
-let A = 160;
-let baseY = 0;
+/* 视口内等比缩放居中 */
+function layoutCanvas() {
+  const vw = window.innerWidth;
+  const vh = window.innerHeight;
+  const viewAspect = vw / vh;
 
-const TAU = Math.PI * 2;
+  let w, h, left, top;
+  if (viewAspect > ASPECT) {
+    /* 视口比画布宽 → 高度撑满 */
+    h = vh;
+    w = vh * ASPECT;
+    left = (vw - w) / 2;
+    top = 0;
+  } else {
+    /* 视口比画布窄 → 宽度撑满 */
+    w = vw;
+    h = vw / ASPECT;
+    left = 0;
+    top = (vh - h) / 2;
+  }
 
-function resize() {
-  DPR = Math.min(window.devicePixelRatio || 1, 2);
-  W = window.innerWidth;
-  H = window.innerHeight;
-
-  canvas.width  = Math.round(W * DPR);
-  canvas.height = Math.round(H * DPR);
-  canvas.style.width  = W + 'px';
-  canvas.style.height = H + 'px';
-  ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
-
-  cx = W / 2;
-  cy = H / 2;
-
-  A     = Math.min(H * 0.26, 200);
-  baseY = cy + 0.375 * A;
-
-  schedulePanelRectsUpdate();
+  canvas.style.width  = w + 'px';
+  canvas.style.height = h + 'px';
+  canvas.style.left   = left + 'px';
+  canvas.style.top    = top + 'px';
 }
-
-window.addEventListener('resize', resize);
-window.addEventListener('orientationchange', () => setTimeout(resize, 120));
+layoutCanvas();
+window.addEventListener('resize', layoutCanvas);
+window.addEventListener('orientationchange', () => setTimeout(layoutCanvas, 120));
 
 /* ==========================================================
-   设置
+   ================ 设置状态 ================================
 ========================================================== */
 const settings = {
-  glass:         false,
-  glassAlpha:    0.30,
-  edgeWarp:      true,
-  warpStrength:  1.0,
+  glass:         true,
+  glassThickness: 0.045,
+  ior:           1.46,
+  dispersion:    0.004,
+  glassY:        55,
+  glassH:        14,
   particles:     true,
   density:       1.6,
   particleColor: '#ffffff',
@@ -59,13 +67,13 @@ const settings = {
 };
 
 /* ==========================================================
-   状态
+   ================ ECG / 粒子 状态 =========================
 ========================================================== */
 const SAMPLE_MS = 5;
-const PX_PER_MS = 0.50;
-const MAX_SPARKS = 9000;
+const PX_PER_MS = 0.5;
+const MAX_SPARKS = 6000;
 
-let simTime        = 0;
+let simTime = 0;
 let nextSampleTime = 0;
 
 let samples = [];
@@ -88,124 +96,566 @@ const ripples = [];
 const marks   = [];
 
 /* ==========================================================
-   玻璃面板边缘挤压
-   —— 每帧获取所有玻璃面板的矩形，粒子经过其边缘时被拉伸
+   ================ 离屏 2D 背景画布 ========================
 ========================================================== */
-const panelRects = [];        // 缓存的面板矩形
-let panelRectsDirty = false;
+const bgCanvas = document.createElement('canvas');
+bgCanvas.width  = CW;
+bgCanvas.height = CH;
+const bgCtx = bgCanvas.getContext('2d', { alpha: false });
 
-function schedulePanelRectsUpdate() {
-  panelRectsDirty = true;
+/* ==========================================================
+   ================ WebGL2 初始化 ===========================
+========================================================== */
+const gl = canvas.getContext('webgl2', {
+  alpha: false,
+  antialias: false,
+  premultipliedAlpha: false,
+  preserveDrawingBuffer: false
+});
+
+if (!gl) {
+  alert('当前浏览器不支持 WebGL2，请使用 Chrome 或 Edge。');
+  return;
 }
 
-function updatePanelRects() {
-  panelRects.length = 0;
+gl.getExtension('EXT_color_buffer_float');
+gl.getExtension('OES_texture_float_linear');
 
-  const selectors = [
-    '.topBtn',
-    '#panel',
-    '.modalCard',
-    '.modalClose',
-    '#btnConnect'
-  ];
+/* ==========================================================
+   ================ 着色器 ==================================
+========================================================== */
 
-  for (let i = 0; i < selectors.length; i++) {
-    const els = document.querySelectorAll(selectors[i]);
-    for (let j = 0; j < els.length; j++) {
-      const el = els[j];
-      const r = el.getBoundingClientRect();
-      if (r.width > 4 && r.height > 4 && r.bottom > 0 && r.top < H) {
-        panelRects.push({
-          x: r.left,
-          y: r.top,
-          w: r.width,
-          h: r.height
-        });
-      }
-    }
-  }
+/* ---- 全屏四边形顶点着色器 ---- */
+const QUAD_VS = `#version 300 es
+in vec2 aPos;
+out vec2 vUV;
+void main() {
+  vUV = aPos * 0.5 + 0.5;
+  gl_Position = vec4(aPos, 0.0, 1.0);
+}`;
 
-  panelRectsDirty = false;
+/* ---- 背景纹理直接拷贝 ---- */
+const COPY_FS = `#version 300 es
+precision highp float;
+in vec2 vUV;
+out vec4 outColor;
+uniform sampler2D uTex;
+void main() {
+  outColor = texture(uTex, vUV);
+}`;
+
+/* ---- 9-tap 高斯模糊（可分离） ---- */
+const BLUR_FS = `#version 300 es
+precision highp float;
+in vec2 vUV;
+out vec4 outColor;
+uniform sampler2D uTex;
+uniform vec2 uTexel;
+uniform vec2 uDir;      // (1,0) 或 (0,1)
+uniform float uRadius;
+
+void main() {
+  vec2 off = uTexel * uDir * uRadius;
+  // 双线性 5-tap 近似高斯
+  vec4 c = texture(uTex, vUV) * 0.2270270270;
+  c += (texture(uTex, vUV + off * 1.3846153846) +
+        texture(uTex, vUV - off * 1.3846153846)) * 0.3162162162;
+  c += (texture(uTex, vUV + off * 3.2307692308) +
+        texture(uTex, vUV - off * 3.2307692308)) * 0.0702702703;
+  outColor = c;
+}`;
+
+/* ---- 主玻璃着色器 ---- */
+const GLASS_FS = `#version 300 es
+precision highp float;
+
+in vec2 vUV;
+out vec4 outColor;
+
+/* 背景纹理（不同模糊级） */
+uniform sampler2D uFaceTex;
+uniform sampler2D uInnerTex;
+uniform sampler2D uOuterTex;
+
+/* 分辨率与宽高比 */
+uniform vec2  uResolution;
+uniform float uAspect;
+
+/* 玻璃形状 */
+uniform vec2  uGlassCenter;      // corrected 坐标下的中心
+uniform vec2  uGlassHalfSize;    // corrected 坐标下的半尺寸
+uniform float uGlassRadius;      // 圆角半径
+
+/* 玻璃光学参数 */
+uniform float uGlassThickness;
+uniform float uNormalTransition;
+uniform float uIOR;
+uniform float uDispersion;
+uniform float uBackgroundDistance;
+uniform float uRoughness;
+uniform vec2  uOpticalCenter;    // Face 放大的光心
+uniform float uTime;
+
+const float PI = 3.14159265359;
+
+/* ===================================================
+   工具函数
+================================================== */
+float quintic(float t) {
+  return t * t * t * (t * (t * 6.0 - 15.0) + 10.0);
 }
 
-/* 计算点到矩形的最近点 */
-function nearestPointOnRect(px, py, rect) {
-  const nx = Math.max(rect.x, Math.min(px, rect.x + rect.w));
-  const ny = Math.max(rect.y, Math.min(py, rect.y + rect.h));
-  return { x: nx, y: ny };
+/* 圆角矩形 SDF */
+float sdRoundRect(vec2 p, vec2 halfSize, float radius) {
+  vec2 q = abs(p) - halfSize + radius;
+  return min(max(q.x, q.y), 0.0) + length(max(q, 0.0)) - radius;
 }
 
-/* 对粒子位置和形状应用挤压
-   —— 返回绘制时使用的显示坐标和缩放系数 */
-const INFLUENCE = 60;   // 影响半径（px）
+/* 多项式 smooth-min */
+float smin(float a, float b, float k) {
+  float h = clamp(0.5 + 0.5 * (b - a) / k, 0.0, 1.0);
+  return mix(b, a, h) - k * h * (1.0 - h);
+}
 
-function getEdgeWarp(px, py) {
-  if (!settings.edgeWarp || panelRects.length === 0) {
-    return { dx: 0, dy: 0, sx: 1, sy: 1, rot: 0 };
+/* 计算高度（低噪声 SDF） */
+float glassSurfaceSdf(vec2 p) {
+  return sdRoundRect(p, uGlassHalfSize, uGlassRadius);
+}
+
+float heightAt(vec2 p) {
+  float sdf = glassSurfaceSdf(p);
+  float interior = max(-sdf, 0.0);
+  float bevel = max(uNormalTransition * 0.82, 0.0001);
+  float t = clamp(interior / bevel, 0.0, 1.0);
+  return uGlassThickness * quintic(t);
+}
+
+/* 高度场 + 法线（差分） */
+vec3 normalAt(vec2 p) {
+  float stepSize = clamp(uNormalTransition * 0.13, 0.003, 0.012);
+
+  /* X 方向需要 aspect 矫正 */
+  float hL = heightAt(p - vec2(stepSize / uAspect, 0.0));
+  float hR = heightAt(p + vec2(stepSize / uAspect, 0.0));
+  float hD = heightAt(p - vec2(0.0, stepSize));
+  float hU = heightAt(p + vec2(0.0, stepSize));
+
+  vec2 grad = vec2(
+    (hR - hL) / (2.0 * stepSize / uAspect),
+    (hU - hD) / (2.0 * stepSize)
+  );
+  return normalize(vec3(-grad, 1.0));
+}
+
+/* ===================================================
+   GGX 高光
+================================================== */
+float D_GGX(float NoH, float a) {
+  float a2 = a * a;
+  float d = NoH * NoH * (a2 - 1.0) + 1.0;
+  return a2 / (PI * d * d + 1e-7);
+}
+
+float V_SmithGGXCorrelated(float NoV, float NoL, float a) {
+  float a2 = a * a;
+  float gv = NoL * sqrt(NoV * NoV * (1.0 - a2) + a2);
+  float gl = NoV * sqrt(NoL * NoL * (1.0 - a2) + a2);
+  return 0.5 / (gv + gl + 1e-7);
+}
+
+vec3 F_Schlick(float u, vec3 f0) {
+  return f0 + (1.0 - f0) * pow(clamp(1.0 - u, 0.0, 1.0), 5.0);
+}
+
+/* ===================================================
+   折射辅助：安全 refract（避免 NaN）
+================================================== */
+vec3 safeRefract(vec3 I, vec3 N, float eta) {
+  vec3 R = refract(I, N, eta);
+  if (dot(R, R) < 1e-6) {
+    // 全反射或零向量 → 返回反射方向
+    return reflect(I, N);
+  }
+  return R;
+}
+
+/* ===================================================
+   主函数
+================================================== */
+void main() {
+  /* ---- 宽高比矫正 ---- */
+  vec2 uv = vUV;
+  vec2 p = (uv - 0.5) * vec2(uAspect, 1.0);
+
+  /* ===========================================
+     1. 玻璃 SDF 与基础遮罩
+  =========================================== */
+  vec2 localP = p - uGlassCenter;
+
+  float sdf = glassSurfaceSdf(localP);
+  float sdfNoisy = sdf;   /* 用于遮罩，带 fwidth 抗锯齿 */
+
+  /* 用 fwidth 建抗锯齿宽度 */
+  float aa = fwidth(sdf) * 0.75;
+  float glassMask = 1.0 - smoothstep(-aa, aa, sdfNoisy);
+  if (glassMask < 0.001) { discard; }
+
+  /* ===========================================
+     2. 高度场与法线（低噪声 SDF）
+  =========================================== */
+  vec3 normal = normalAt(localP);
+
+  /* 中心区域强制 (0,0,1) */
+  float interior = max(-sdf, 0.0);
+  float bevel = max(uNormalTransition * 0.82, 0.0001);
+  float t = clamp(interior / bevel, 0.0, 1.0);
+  float height = uGlassThickness * quintic(t);
+
+  /* 中心区域 normal 稳定 */
+  float centerZone = smoothstep(0.6, 0.95, t);
+  normal = normalize(mix(normal, vec3(0.0, 0.0, 1.0), centerZone));
+
+  /* ===========================================
+     3. 三路采样坐标
+  =========================================== */
+
+  /* 视线 incident */
+  vec3 incident = vec3(0.0, 0.0, -1.0);
+
+  /* 前表面点（corrected 坐标 + 高度） */
+  vec3 P0 = vec3(localP, height);
+
+  /* 前表面折射 */
+  float eta = 1.0 / uIOR;
+  vec3 insideRay = safeRefract(incident, normal, eta);
+
+  /* 沿内部光程推进到背面（背面 z = 0） */
+  float glassPath = height / max(-insideRay.z, 0.025);
+  vec3 P1 = vec3(
+    localP.x + insideRay.x * glassPath,
+    localP.y + insideRay.y * glassPath,
+    0.0
+  );
+
+  /* 背面折射（玻璃 → 空气，eta = IOR） */
+  vec3 backNormal = vec3(0.0, 0.0, 1.0);
+
+  /* 用高度差驱动边缘方向 */
+  float sdfRimGrad = clamp(-sdf / uNormalTransition, -1.0, 1.0);
+  vec3 edgeDirection = normalize(vec3(
+    normal.x,
+    normal.y,
+    0.0
+  ) + vec3(0.0001, 0.0001, 0.0));
+
+  /* 边缘位移量 */
+  float rimDisplacement = uGlassThickness * 0.55 * (1.0 - t);
+
+  /* ===========================================
+     4. RGB 三路色散追踪
+  =========================================== */
+  float iorR = uIOR - uDispersion;
+  float iorG = uIOR;
+  float iorB = uIOR + uDispersion;
+
+  /* 三路分别前向折射 */
+  vec3 insideR = safeRefract(incident, normal, 1.0 / iorR);
+  vec3 insideG = safeRefract(incident, normal, 1.0 / iorG);
+  vec3 insideB = safeRefract(incident, normal, 1.0 / iorB);
+
+  /* 推进 */
+  float pathR = height / max(-insideR.z, 0.025);
+  float pathG = height / max(-insideG.z, 0.025);
+  float pathB = height / max(-insideB.z, 0.025);
+
+  vec3 PR = vec3(localP.x + insideR.x * pathR, localP.y + insideR.y * pathR, 0.0);
+  vec3 PG = vec3(localP.x + insideG.x * pathG, localP.y + insideG.y * pathG, 0.0);
+  vec3 PB = vec3(localP.x + insideB.x * pathB, localP.y + insideB.y * pathB, 0.0);
+
+  /* 背面折射：玻璃 → 空气 */
+  vec3 outR = safeRefract(insideR, backNormal, iorR);
+  vec3 outG = safeRefract(insideG, backNormal, iorG);
+  vec3 outB = safeRefract(insideB, backNormal, iorB);
+
+  /* 与背景平面 z = -uBackgroundDistance 求交 */
+  float tR = -uBackgroundDistance / min(outR.z, -0.001);
+  float tG = -uBackgroundDistance / min(outG.z, -0.001);
+  float tB = -uBackgroundDistance / min(outB.z, -0.001);
+
+  vec3 hitR = PR + outR * tR;
+  vec3 hitG = PG + outG * tG;
+  vec3 hitB = PB + outB * tB;
+
+  /* 将 corrected 坐标还原回 uv */
+  vec2 bgUVR = hitR.xy / vec2(uAspect, 1.0) + 0.5;
+  vec2 bgUVG = hitG.xy / vec2(uAspect, 1.0) + 0.5;
+  vec2 bgUVB = hitB.xy / vec2(uAspect, 1.0) + 0.5;
+
+  /* ===========================================
+     5. Face / Inner / Outer 三路坐标
+  =========================================== */
+
+  /* Face：从光心轻微放大，清晰 */
+  vec2 faceUV = uOpticalCenter + (uv - uOpticalCenter) * 0.975;
+
+  /* Inner：主要压缩/拉伸 */
+  vec2 innerUVR = bgUVR - edgeDirection.xy * rimDisplacement;
+  vec2 innerUVG = bgUVG - edgeDirection.xy * rimDisplacement;
+  vec2 innerUVB = bgUVB - edgeDirection.xy * rimDisplacement;
+
+  /* Outer：反向、更大位移，可读玻璃外部背景 */
+  vec2 outerUVR = bgUVR + edgeDirection.xy * rimDisplacement * 1.28;
+  vec2 outerUVG = bgUVG + edgeDirection.xy * rimDisplacement * 1.28;
+  vec2 outerUVB = bgUVB + edgeDirection.xy * rimDisplacement * 1.28;
+
+  /* ===========================================
+     6. 三路采样
+  =========================================== */
+
+  /* Face：较高 LOD（清晰）、无强色散 */
+  vec3 faceCol = texture(uFaceTex, faceUV).rgb;
+
+  /* Inner：低 LOD（保持边缘清晰） */
+  vec3 innerCol = vec3(
+    texture(uInnerTex, innerUVR).r,
+    texture(uInnerTex, innerUVG).g,
+    texture(uInnerTex, innerUVB).b
+  );
+
+  /* Outer：更高 LOD（柔和翻卷） */
+  vec3 outerCol = vec3(
+    texture(uOuterTex, outerUVR).r,
+    texture(uOuterTex, outerUVG).g,
+    texture(uOuterTex, outerUVB).b
+  );
+
+  /* ===========================================
+     7. 三路权重合成
+  =========================================== */
+
+  /* 倒角权重：外半段参与 Inner/Outer，中心只有 Face */
+  float outerBevelSupport = smoothstep(0.0, 1.0, 1.0 - t);
+
+  /* 曲率权重 */
+  float curvature = 1.0 - normal.z;
+  float curvWeight = smoothstep(0.0, 0.35, curvature);
+
+  float faceWeight  = max(t * 0.85 + 0.15, 0.0);
+  float innerWeight = outerBevelSupport * (0.55 + curvWeight * 0.45);
+  float outerWeight = outerBevelSupport * 0.45;
+
+  /* 归一化 */
+  float wsum = faceWeight + innerWeight + outerWeight + 1e-6;
+  faceWeight  /= wsum;
+  innerWeight /= wsum;
+  outerWeight /= wsum;
+
+  vec3 refracted = faceCol * faceWeight + innerCol * innerWeight + outerCol * outerWeight;
+
+  /* ===========================================
+     8. 玻璃外部柔和阴影 + 染色
+  =========================================== */
+  /* 外部轻微阴影（贴近边缘） */
+  float outerShadow = smoothstep(0.0, 0.4, -sdf / uNormalTransition) * 0.18;
+  refracted *= (1.0 - outerShadow);
+
+  /* 白色染色（很淡，避免塑料感） */
+  refracted = mix(refracted, refracted * 0.96 + vec3(0.04), 0.22);
+
+  /* ===========================================
+     9. GGX 镜面反射
+  =========================================== */
+
+  /* F0 */
+  float f0scalar = (uIOR - 1.0) / (uIOR + 1.0);
+  vec3 F0 = vec3(f0scalar * f0scalar);
+
+  float rough = clamp(uRoughness, 0.04, 1.0);
+  float a = rough * rough;
+
+  /* 视线方向 */
+  vec3 V = vec3(0.0, 0.0, 1.0);
+
+  /* 只在外半段做直接高光 */
+  float directWeight = curvWeight * outerBevelSupport;
+
+  /* 四点掠射柔光阵列（缓慢绕相机旋转） */
+  float ang = uTime * 0.08;
+  float ca = cos(ang), sa = sin(ang);
+
+  vec3 L0 = normalize(vec3( 0.93 * ca - 0.92 * sa,  0.92 * ca + 0.93 * sa,  0.35));
+  vec3 L1 = normalize(vec3(-0.90 * ca - 0.94 * sa,  0.94 * ca - 0.90 * sa,  0.40));
+  vec3 L2 = normalize(vec3( 0.91 * ca + 0.95 * sa, -0.95 * ca + 0.91 * sa,  0.30));
+  vec3 L3 = normalize(vec3(-0.96 * ca + 0.90 * sa, -0.90 * ca - 0.96 * sa,  0.38));
+
+  vec3 lightColor0 = vec3(0.85, 0.92, 1.00);  /* 冷 */
+  vec3 lightColor1 = vec3(1.00, 0.94, 0.86);  /* 暖 */
+  vec3 lightColor2 = vec3(0.88, 0.95, 1.00);  /* 冷 */
+  vec3 lightColor3 = vec3(1.00, 0.92, 0.82);  /* 暖 */
+
+  vec3 lightDirs[4];
+  vec3 lightCols[4];
+  lightDirs[0] = L0; lightCols[0] = lightColor0;
+  lightDirs[1] = L1; lightCols[1] = lightColor1;
+  lightDirs[2] = L2; lightCols[2] = lightColor2;
+  lightDirs[3] = L3; lightCols[3] = lightColor3;
+
+  vec3 specular = vec3(0.0);
+  for (int i = 0; i < 4; i++) {
+    vec3 L = lightDirs[i];
+    vec3 H = normalize(L + V);
+
+    float NoV = max(dot(normal, V), 1e-4);
+    float NoL = max(dot(normal, L), 1e-4);
+    float NoH = max(dot(normal, H), 0.0);
+    float VoH = max(dot(V, H), 0.0);
+
+    float D = D_GGX(NoH, a);
+    float Vis = V_SmithGGXCorrelated(NoV, NoL, a);
+    vec3  F = F_Schlick(VoH, F0);
+
+    vec3 spec = D * Vis * F * lightCols[i] * NoL;
+    specular += spec;
   }
 
-  let bestT = 0;
-  let bestDx = 0, bestDy = 0;
-  let bestNx = 0, bestNy = 0;
-  let bestInside = false;
+  specular *= directWeight * 2.4;
 
-  for (let i = 0; i < panelRects.length; i++) {
-    const rect = panelRects[i];
+  /* 环境 Fresnel（边缘提亮） */
+  float NoV = max(dot(normal, V), 1e-4);
+  vec3 envFres = F_Schlick(NoV, F0) * 0.35 * (0.35 + 0.65 * outerBevelSupport);
+  specular += envFres * 0.6;
 
-    const np = nearestPointOnRect(px, py, rect);
-    const ndx = px - np.x;
-    const ndy = py - np.y;
-    const dist = Math.hypot(ndx, ndy);
+  /* ===========================================
+     10. 最终合成
+  =========================================== */
+  vec3 finalCol = refracted + specular;
 
-    if (dist > INFLUENCE) continue;
+  /* 边缘亮度提升（能量守恒的界面反光） */
+  float edgeLift = smoothstep(0.4, 1.0, 1.0 - t) * 0.12;
+  finalCol += vec3(edgeLift);
 
-    const inside =
-      px > rect.x && px < rect.x + rect.w &&
-      py > rect.y && py < rect.y + rect.h;
+  /* 抗锯齿输出 */
+  outColor = vec4(finalCol, glassMask);
+}`;
 
-    const t = 1 - dist / INFLUENCE;
-    if (t > bestT) {
-      bestT = t;
-      bestDx = ndx;
-      bestDy = ndy;
-      bestInside = inside;
-      if (dist > 0.001) {
-        bestNx = ndx / dist;
-        bestNy = ndy / dist;
-      }
-    }
+/* ==========================================================
+   ================ WebGL 程序编译 ==========================
+========================================================== */
+function compileShader(type, src) {
+  const s = gl.createShader(type);
+  gl.shaderSource(s, src);
+  gl.compileShader(s);
+  if (!gl.getShaderParameter(s, gl.COMPILE_STATUS)) {
+    console.error(gl.getShaderInfoLog(s));
+    console.error(src);
   }
+  return s;
+}
 
-  if (bestT <= 0) {
-    return { dx: 0, dy: 0, sx: 1, sy: 1, rot: 0 };
+function createProgram(vsSrc, fsSrc) {
+  const vs = compileShader(gl.VERTEX_SHADER, vsSrc);
+  const fs = compileShader(gl.FRAGMENT_SHADER, fsSrc);
+  const p = gl.createProgram();
+  gl.attachShader(p, vs);
+  gl.attachShader(p, fs);
+  gl.linkProgram(p);
+  if (!gl.getProgramParameter(p, gl.LINK_STATUS)) {
+    console.error(gl.getProgramInfoLog(p));
   }
+  return p;
+}
 
-  const strength = settings.warpStrength || 1.0;
+const copyProgram = createProgram(QUAD_VS, COPY_FS);
+const blurProgram = createProgram(QUAD_VS, BLUR_FS);
+const glassProgram = createProgram(QUAD_VS, GLASS_FS);
 
-  /* 挤压：越靠近边缘，垂直方向越被压缩、平行方向越被拉长 */
-  const stretch = bestT * bestT * 2.2 * strength;
+/* ==========================================================
+   ================ 全屏四边形 VAO ==========================
+========================================================== */
+const quadVAO = gl.createVertexArray();
+gl.bindVertexArray(quadVAO);
 
-  /* 位移：外部向内拉，内部向边缘推 */
-  const pull = bestT * bestT * 14 * strength;
+const quadVBO = gl.createBuffer();
+gl.bindBuffer(gl.ARRAY_BUFFER, quadVBO);
+gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([
+  -1, -1,  1, -1, -1,  1,
+  -1,  1,  1, -1,  1,  1
+]), gl.STATIC_DRAW);
 
-  const dx = bestInside ? bestNx * pull : -bestNx * pull;
-  const dy = bestInside ? bestNy * pull : -bestNy * pull;
+gl.enableVertexAttribArray(0);
+gl.vertexAttribPointer(0, 2, gl.FLOAT, false, 0, 0);
 
-  /* 椭圆方向：沿法线方向拉长，切向压缩 */
-  const rot = Math.atan2(bestNy, bestNx);
+gl.bindVertexArray(null);
 
-  return {
-    dx: dx,
-    dy: dy,
-    sx: 1 + stretch,               // 沿法线拉伸
-    sy: 1 / (1 + stretch * 0.45),  // 沿切线压缩
-    rot: rot
-  };
+/* ==========================================================
+   ================ 渲染目标 ================================
+========================================================== */
+function createRT(w, h, format) {
+  const tex = gl.createTexture();
+  gl.bindTexture(gl.TEXTURE_2D, tex);
+  gl.texImage2D(gl.TEXTURE_2D, 0, format, w, h, 0, format, gl.UNSIGNED_BYTE, null);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+
+  const fbo = gl.createFramebuffer();
+  gl.bindFramebuffer(gl.FRAMEBUFFER, fbo);
+  gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, tex, 0);
+
+  gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+  gl.bindTexture(gl.TEXTURE_2D, null);
+
+  return { tex, fbo, w, h };
+}
+
+/* paintComposeRT —— 背景源纹理 */
+const paintComposeRT = createRT(CW, CH, gl.RGBA);
+
+/* 模糊金字塔（5 级） */
+const pyramid = [];
+const PYRAMID_LEVELS = 5;
+let pw = CW, ph = CH;
+for (let i = 0; i < PYRAMID_LEVELS; i++) {
+  pw = Math.max(2, pw >> 1);
+  ph = Math.max(2, ph >> 1);
+  pyramid.push({
+    a: createRT(pw, ph, gl.RGBA),
+    b: createRT(pw, ph, gl.RGBA),
+    w: pw,
+    h: ph
+  });
+}
+
+/* 背景纹理上传用 */
+const bgTexture = gl.createTexture();
+gl.bindTexture(gl.TEXTURE_2D, bgTexture);
+gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+gl.bindTexture(gl.TEXTURE_2D, null);
+
+/* ==========================================================
+   ================ 通用渲染辅助 ============================
+========================================================== */
+function bindRT(rt) {
+  gl.bindFramebuffer(gl.FRAMEBUFFER, rt ? rt.fbo : null);
+  if (rt) gl.viewport(0, 0, rt.w, rt.h);
+  else    gl.viewport(0, 0, CW, CH);
+}
+
+function drawQuad() {
+  gl.bindVertexArray(quadVAO);
+  gl.drawArrays(gl.TRIANGLES, 0, 6);
+  gl.bindVertexArray(null);
 }
 
 /* ==========================================================
-   心电波形
+   ================ 背景 2D 渲染 ============================
 ========================================================== */
+
+/* ---------- 心电波形 ---------- */
 function ecgAt(t) {
   let v = 0;
   v += 0.090 * Math.exp(-Math.pow((t - 0.120) / 0.0250, 2));
@@ -216,8 +666,433 @@ function ecgAt(t) {
   return v;
 }
 
+/* 背景 2D 布局参数（相对于 1080×1920） */
+const BG_BASEY = CH * 0.55;
+const BG_A     = 260;
+
+/* ---------- 网格 ---------- */
+function bgDrawGrid() {
+  const minor = 18, major = 90;
+  bgCtx.lineWidth = 1;
+
+  bgCtx.strokeStyle = 'rgba(255,255,255,0.030)';
+  bgCtx.beginPath();
+  for (let x = 0; x < CW; x += minor) { bgCtx.moveTo(x + .5, 0); bgCtx.lineTo(x + .5, CH); }
+  for (let y = 0; y < CH; y += minor) { bgCtx.moveTo(0, y + .5); bgCtx.lineTo(CW, y + .5); }
+  bgCtx.stroke();
+
+  bgCtx.strokeStyle = 'rgba(255,255,255,0.065)';
+  bgCtx.beginPath();
+  for (let x = 0; x < CW; x += major) { bgCtx.moveTo(x + .5, 0); bgCtx.lineTo(x + .5, CH); }
+  for (let y = 0; y < CH; y += major) { bgCtx.moveTo(0, y + .5); bgCtx.lineTo(CW, y + .5); }
+  bgCtx.stroke();
+
+  bgCtx.strokeStyle = 'rgba(255,255,255,0.09)';
+  bgCtx.beginPath();
+  bgCtx.moveTo(0, BG_BASEY + .5);
+  bgCtx.lineTo(CW, BG_BASEY + .5);
+  bgCtx.stroke();
+}
+
+/* ---------- ECG 波形 ---------- */
+function bgDrawWave() {
+  const n = samples.length;
+  if (n < 2) return;
+
+  const path = new Path2D();
+  let started = false;
+
+  for (let i = 0; i < n; i++) {
+    const s = samples[i];
+    const x = CW - (simTime - s.t) * PX_PER_MS;
+    if (x < -30) continue;
+    if (x > CW + 30) break;
+
+    const y = BG_BASEY - s.v * BG_A;
+    if (!started) { path.moveTo(x, y); started = true; }
+    else path.lineTo(x, y);
+  }
+  if (!started) return;
+
+  const grad = bgCtx.createLinearGradient(0, 0, CW * 0.26, 0);
+  grad.addColorStop(0, 'rgba(255,255,255,0)');
+  grad.addColorStop(1, 'rgba(255,255,255,1)');
+
+  bgCtx.save();
+  bgCtx.lineCap  = 'round';
+  bgCtx.lineJoin = 'round';
+  bgCtx.strokeStyle = grad;
+
+  const layers = [
+    { w: 22,   a: 0.035 },
+    { w: 11,   a: 0.070 },
+    { w: 5.5,  a: 0.160 },
+    { w: 2.8,  a: 0.400 },
+    { w: 1.3,  a: 1.000 }
+  ];
+  for (let i = 0; i < layers.length; i++) {
+    bgCtx.globalAlpha = layers[i].a;
+    bgCtx.lineWidth   = layers[i].w;
+    bgCtx.stroke(path);
+  }
+  bgCtx.restore();
+  bgCtx.globalAlpha = 1;
+}
+
+/* ---------- 打点标记 ---------- */
+function bgDrawMarks() {
+  if (marks.length === 0) return;
+
+  bgCtx.save();
+  for (let i = 0; i < marks.length; i++) {
+    const m = marks[i];
+    const x = CW - (simTime - m.t) * PX_PER_MS;
+    if (x < -30 || x > CW + 30) continue;
+
+    const topY = BG_BASEY - BG_A * 1.2;
+    const botY = BG_BASEY + BG_A * 0.8;
+
+    bgCtx.strokeStyle = 'rgba(255,255,255,.28)';
+    bgCtx.lineWidth = 1.4;
+    bgCtx.beginPath();
+    bgCtx.moveTo(x, topY);
+    bgCtx.lineTo(x, botY);
+    bgCtx.stroke();
+
+    bgCtx.globalAlpha = 0.28;
+    bgCtx.fillStyle = '#fff';
+    bgCtx.beginPath();
+    bgCtx.arc(x, topY, 12, 0, Math.PI * 2);
+    bgCtx.fill();
+    bgCtx.globalAlpha = 1;
+
+    bgCtx.fillStyle = '#fff';
+    bgCtx.beginPath();
+    bgCtx.arc(x, topY, 5, 0, Math.PI * 2);
+    bgCtx.fill();
+  }
+  bgCtx.restore();
+}
+
+/* ---------- 粒子 ---------- */
+function bgDrawSparks(dtSec) {
+  bgCtx.save();
+  bgCtx.globalCompositeOperation = 'lighter';
+
+  const damp    = Math.pow(0.30, dtSec);
+  const col     = settings.particleColor;
+  const timeSec = simTime * 0.001;
+
+  for (let i = sparks.length - 1; i >= 0; i--) {
+    const p = sparks[i];
+
+    p.life -= dtSec * p.decay;
+    if (p.life <= 0) { sparks.splice(i, 1); continue; }
+
+    p.x += p.vx * dtSec;
+    p.y += p.vy * dtSec;
+    p.vx *= damp;
+    p.vy *= damp;
+    if (p.star) p.vy -= 2.5 * dtSec;
+
+    const a = p.life * p.life;
+
+    let tw = 1;
+    if (p.star) {
+      const s = Math.sin(p.twinklePhase + timeSec * p.twinkleSpeed);
+      tw = 0.22 + 0.78 * (0.5 + 0.5 * s);
+    }
+
+    /* 拖尾 */
+    if (p.trail && p.trail.length) {
+      p.trail.push(p.x, p.y);
+      while (p.trail.length > p.maxTrail * 2) {
+        p.trail.shift(); p.trail.shift();
+      }
+      const tn = p.trail.length / 2;
+      for (let j = 0; j < tn; j++) {
+        const k = j / tn;
+        const ta = a * k * k * 0.45;
+        if (ta < 0.01) continue;
+        const tr = p.size * k * 0.85;
+        if (tr < 0.25) continue;
+        bgCtx.globalAlpha = ta;
+        bgCtx.fillStyle = col;
+        bgCtx.beginPath();
+        bgCtx.arc(p.trail[j * 2], p.trail[j * 2 + 1], tr, 0, Math.PI * 2);
+        bgCtx.fill();
+      }
+    }
+
+    const cr = p.size * (0.5 + p.life * 0.9);
+
+    bgCtx.globalAlpha = a * tw;
+    bgCtx.fillStyle = col;
+    bgCtx.beginPath();
+    bgCtx.arc(p.x, p.y, cr, 0, Math.PI * 2);
+    bgCtx.fill();
+
+    if (p.star && p.size > 1.0) {
+      bgCtx.globalAlpha = a * tw * 0.22;
+      bgCtx.beginPath();
+      bgCtx.arc(p.x, p.y, cr * 3.2, 0, Math.PI * 2);
+      bgCtx.fill();
+    }
+
+    if (!p.star && p.size > 2.2 && p.life > 0.4) {
+      const L = p.size * 3.5 * p.life;
+      bgCtx.globalAlpha = a * 0.5;
+      bgCtx.fillRect(p.x - L, p.y - 0.5, L * 2, 1);
+      bgCtx.fillRect(p.x - 0.5, p.y - L, 1, L * 2);
+    }
+  }
+
+  /* 涟漪 */
+  for (let i = ripples.length - 1; i >= 0; i--) {
+    const rp = ripples[i];
+    rp.life -= dtSec * rp.decay;
+    if (rp.life <= 0) { ripples.splice(i, 1); continue; }
+
+    const t = 1 - rp.life;
+    const ease = 1 - Math.pow(1 - t, 2.4);
+    const r = rp.r + (rp.maxR - rp.r) * ease;
+
+    bgCtx.globalAlpha = rp.life * rp.life * 0.5;
+    bgCtx.strokeStyle = col;
+    bgCtx.lineWidth = 2.2 * rp.life + 0.3;
+    bgCtx.beginPath();
+    bgCtx.arc(rp.x, rp.y, r, 0, Math.PI * 2);
+    bgCtx.stroke();
+  }
+
+  bgCtx.restore();
+  bgCtx.globalAlpha = 1;
+}
+
+/* ---------- 局部放大窗口 ---------- */
+function bgRoundRect(c, x, y, w, h, r) {
+  c.beginPath();
+  c.moveTo(x + r, y);
+  c.arcTo(x + w, y, x + w, y + h, r);
+  c.arcTo(x + w, y + h, x, y + h, r);
+  c.arcTo(x, y + h, x, y, r);
+  c.arcTo(x, y, x + w, y, r);
+  c.closePath();
+}
+
+function bgDrawMagnify() {
+  if (!settings.magnify) return;
+  if (samples.length < 10) return;
+
+  const boxW = 360;
+  const boxH = 220;
+  const bx = CW - boxW - 30;
+  const by = CH - boxH - 380;
+
+  const startT = simTime - beatInterval * 0.98;
+  const seg = [];
+  for (let i = samples.length - 1; i >= 0; i--) {
+    const s = samples[i];
+    if (s.t < startT) break;
+    seg.unshift(s);
+  }
+  if (seg.length < 4) return;
+
+  bgCtx.save();
+
+  bgCtx.fillStyle = 'rgba(0,0,0,.58)';
+  bgCtx.strokeStyle = 'rgba(255,255,255,.18)';
+  bgCtx.lineWidth = 1.2;
+  bgRoundRect(bgCtx, bx, by, boxW, boxH, 14);
+  bgCtx.fill();
+  bgCtx.stroke();
+
+  bgCtx.fillStyle = 'rgba(255,255,255,.45)';
+  bgCtx.font = '15px ui-monospace, "SF Mono", Menlo, monospace';
+  bgCtx.textBaseline = 'top';
+  bgCtx.fillText('ECG · 局部放大', bx + 15, by + 13);
+
+  const padX = 14, padY = 38;
+  const innerW = boxW - padX * 2;
+  const innerH = boxH - padY - 12;
+  const midY = by + padY + innerH / 2;
+
+  const tStart = seg[0].t;
+  const tEnd   = seg[seg.length - 1].t;
+  const tSpan  = (tEnd - tStart) || 1;
+
+  const scaleX = innerW / tSpan;
+  const scaleY = innerH * 0.40;
+
+  const path = new Path2D();
+  for (let i = 0; i < seg.length; i++) {
+    const s = seg[i];
+    const px = bx + padX + (s.t - tStart) * scaleX;
+    const py = midY - s.v * scaleY;
+    if (i === 0) path.moveTo(px, py);
+    else path.lineTo(px, py);
+  }
+
+  bgCtx.lineCap = 'round';
+  bgCtx.lineJoin = 'round';
+  bgCtx.strokeStyle = '#fff';
+  const layers = [
+    { w: 13,   a: 0.05 },
+    { w: 6.5,  a: 0.15 },
+    { w: 3.2,  a: 0.45 },
+    { w: 1.4,  a: 1.00 }
+  ];
+  for (let i = 0; i < layers.length; i++) {
+    bgCtx.globalAlpha = layers[i].a;
+    bgCtx.lineWidth = layers[i].w;
+    bgCtx.stroke(path);
+  }
+  bgCtx.globalAlpha = 1;
+  bgCtx.restore();
+}
+
+/* ---------- 背景整体渲染 ---------- */
+function bgRender(dtSec) {
+  /* 底色 */
+  bgCtx.fillStyle = '#000';
+  bgCtx.fillRect(0, 0, CW, CH);
+
+  bgDrawGrid();
+  bgDrawWave();
+  bgDrawMarks();
+  bgDrawSparks(dtSec);
+  bgDrawMagnify();
+}
+
 /* ==========================================================
-   摆动方向 → 速度向量
+   ================ 模糊金字塔生成 ==========================
+========================================================== */
+let blurH, blurV, blurTexel, blurRadius, blurDir;
+
+function runBlurPass(srcTex, dstRT, dirX, dirY, radius) {
+  bindRT(dstRT);
+  gl.useProgram(blurProgram);
+
+  gl.activeTexture(gl.TEXTURE0);
+  gl.bindTexture(gl.TEXTURE_2D, srcTex);
+  gl.uniform1i(gl.getUniformLocation(blurProgram, 'uTex'), 0);
+
+  gl.uniform2f(gl.getUniformLocation(blurProgram, 'uTexel'), 1 / dstRT.w, 1 / dstRT.h);
+  gl.uniform2f(gl.getUniformLocation(blurProgram, 'uDir'), dirX, dirY);
+  gl.uniform1f(gl.getUniformLocation(blurProgram, 'uRadius'), radius);
+
+  drawQuad();
+}
+
+function updatePyramid() {
+  let srcTex = paintComposeRT.tex;
+
+  for (let i = 0; i < PYRAMID_LEVELS; i++) {
+    const lv = pyramid[i];
+
+    /* 水平 pass */
+    runBlurPass(srcTex, lv.a, 1, 0, 1.0);
+    /* 垂直 pass */
+    runBlurPass(lv.a.tex, lv.b, 0, 1, 1.0);
+
+    srcTex = lv.b.tex;
+  }
+}
+
+/* ==========================================================
+   ================ 背景上传为纹理 ==========================
+========================================================== */
+function uploadBackground() {
+  gl.bindTexture(gl.TEXTURE_2D, paintComposeRT.tex);
+  gl.texImage2D(
+    gl.TEXTURE_2D, 0, gl.RGBA,
+    gl.RGBA, gl.UNSIGNED_BYTE,
+    bgCanvas
+  );
+  gl.bindTexture(gl.TEXTURE_2D, null);
+}
+
+/* ==========================================================
+   ================ 玻璃渲染 ================================
+========================================================== */
+const glassUniforms = {
+  uFaceTex:            gl.getUniformLocation(glassProgram, 'uFaceTex'),
+  uInnerTex:           gl.getUniformLocation(glassProgram, 'uInnerTex'),
+  uOuterTex:           gl.getUniformLocation(glassProgram, 'uOuterTex'),
+  uResolution:         gl.getUniformLocation(glassProgram, 'uResolution'),
+  uAspect:             gl.getUniformLocation(glassProgram, 'uAspect'),
+  uGlassCenter:        gl.getUniformLocation(glassProgram, 'uGlassCenter'),
+  uGlassHalfSize:      gl.getUniformLocation(glassProgram, 'uGlassHalfSize'),
+  uGlassRadius:        gl.getUniformLocation(glassProgram, 'uGlassRadius'),
+  uGlassThickness:     gl.getUniformLocation(glassProgram, 'uGlassThickness'),
+  uNormalTransition:   gl.getUniformLocation(glassProgram, 'uNormalTransition'),
+  uIOR:                gl.getUniformLocation(glassProgram, 'uIOR'),
+  uDispersion:         gl.getUniformLocation(glassProgram, 'uDispersion'),
+  uBackgroundDistance: gl.getUniformLocation(glassProgram, 'uBackgroundDistance'),
+  uRoughness:          gl.getUniformLocation(glassProgram, 'uRoughness'),
+  uOpticalCenter:      gl.getUniformLocation(glassProgram, 'uOpticalCenter'),
+  uTime:               gl.getUniformLocation(glassProgram, 'uTime')
+};
+
+function renderGlass(timeSec) {
+  bindRT(null);
+
+  gl.clearColor(0, 0, 0, 1);
+  gl.clear(gl.COLOR_BUFFER_BIT);
+
+  if (!settings.glass) {
+    /* 关闭液态玻璃：直接显示背景 */
+    gl.useProgram(copyProgram);
+    gl.activeTexture(gl.TEXTURE0);
+    gl.bindTexture(gl.TEXTURE_2D, paintComposeRT.tex);
+    gl.uniform1i(gl.getUniformLocation(copyProgram, 'uTex'), 0);
+    drawQuad();
+    return;
+  }
+
+  gl.useProgram(glassProgram);
+  gl.enable(gl.BLEND);
+  gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
+
+  /* 玻璃在 corrected 坐标下的中心与尺寸 */
+  const glassCenterY = (settings.glassY / 100 - 0.5) * 1.0;   /* 竖屏 y: -0.5 到 0.5 */
+  const glassHalfY   = (settings.glassH / 100) * 0.5;
+  const glassHalfX   = 0.5 - 0.03;                             /* 略小于屏幕宽 */
+  const glassRadius  = Math.min(glassHalfY, glassHalfX) * 0.42;
+  const normalTransition = Math.max(glassHalfY * 0.55, 0.02);
+
+  gl.uniform1i(glassUniforms.uFaceTex,  0);
+  gl.uniform1i(glassUniforms.uInnerTex, 1);
+  gl.uniform1i(glassUniforms.uOuterTex, 2);
+
+  gl.activeTexture(gl.TEXTURE0);
+  gl.bindTexture(gl.TEXTURE_2D, pyramid[0].b.tex);   /* Face 用 level 1（轻微模糊） */
+  gl.activeTexture(gl.TEXTURE1);
+  gl.bindTexture(gl.TEXTURE_2D, pyramid[1].b.tex);   /* Inner 用 level 2 */
+  gl.activeTexture(gl.TEXTURE2);
+  gl.bindTexture(gl.TEXTURE_2D, pyramid[3].b.tex);   /* Outer 用 level 4（最模糊） */
+
+  gl.uniform2f(glassUniforms.uResolution, CW, CH);
+  gl.uniform1f(glassUniforms.uAspect, ASPECT);
+  gl.uniform2f(glassUniforms.uGlassCenter, 0.0, glassCenterY);
+  gl.uniform2f(glassUniforms.uGlassHalfSize, glassHalfX, glassHalfY);
+  gl.uniform1f(glassUniforms.uGlassRadius, glassRadius);
+  gl.uniform1f(glassUniforms.uGlassThickness, settings.glassThickness);
+  gl.uniform1f(glassUniforms.uNormalTransition, normalTransition);
+  gl.uniform1f(glassUniforms.uIOR, settings.ior);
+  gl.uniform1f(glassUniforms.uDispersion, settings.dispersion);
+  gl.uniform1f(glassUniforms.uBackgroundDistance, 1.2);
+  gl.uniform1f(glassUniforms.uRoughness, 0.32);
+  gl.uniform2f(glassUniforms.uOpticalCenter, 0.5, 0.5);
+  gl.uniform1f(glassUniforms.uTime, timeSec);
+
+  drawQuad();
+
+  gl.disable(gl.BLEND);
+}
+
+/* ==========================================================
+   ================ ECG 与粒子更新 ==========================
 ========================================================== */
 function pickVelocity(spd) {
   const s = settings.sway;
@@ -236,17 +1111,17 @@ function pickVelocity(spd) {
     ang = (Math.random() - 0.5) * Math.PI * 0.75;
     vx = Math.cos(ang) * spd; vy = Math.sin(ang) * spd;
   } else if (s === 'cw') {
-    ang = Math.random() * TAU;
+    ang = Math.random() * Math.PI * 2;
     cos = Math.cos(ang); sin = Math.sin(ang);
     vx = (cos * 0.72 + sin * 0.55) * spd;
     vy = (sin * 0.72 - cos * 0.55) * spd;
   } else if (s === 'ccw') {
-    ang = Math.random() * TAU;
+    ang = Math.random() * Math.PI * 2;
     cos = Math.cos(ang); sin = Math.sin(ang);
     vx = (cos * 0.72 - sin * 0.55) * spd;
     vy = (sin * 0.72 + cos * 0.55) * spd;
   } else {
-    ang = Math.random() * TAU;
+    ang = Math.random() * Math.PI * 2;
     vx = Math.cos(ang) * spd; vy = Math.sin(ang) * spd;
   }
   return { vx: vx, vy: vy };
@@ -260,25 +1135,22 @@ function addSpark(p) {
 }
 
 function getCloudCenter(rx, ry) {
-  if (settings.fullDist) return { x: W / 2, y: H / 2 };
+  if (settings.fullDist) return { x: CW / 2, y: CH / 2 };
   const a = settings.anchor;
-  if (a === 'center') return { x: W / 2, y: H / 2 };
-  if (a === 'top')    return { x: W / 2, y: H * 0.22 };
-  if (a === 'bottom') return { x: W / 2, y: H * 0.78 };
-  if (a === 'left')   return { x: W * 0.22, y: H / 2 };
-  if (a === 'right')  return { x: W * 0.78, y: H / 2 };
-  if (a === 'custom') return { x: W * settings.customAnchor.x, y: H * settings.customAnchor.y };
+  if (a === 'center') return { x: CW / 2, y: CH / 2 };
+  if (a === 'top')    return { x: CW / 2, y: CH * 0.22 };
+  if (a === 'bottom') return { x: CW / 2, y: CH * 0.78 };
+  if (a === 'left')   return { x: CW * 0.22, y: CH / 2 };
+  if (a === 'right')  return { x: CW * 0.78, y: CH / 2 };
+  if (a === 'custom') return { x: CW * settings.customAnchor.x, y: CH * settings.customAnchor.y };
   return { x: rx, y: ry };
 }
 
 function getCloudRadius() {
-  if (settings.fullDist) return Math.hypot(W, H) * 0.55;
-  return Math.min(W, H) * (settings.radiusPct / 100);
+  if (settings.fullDist) return Math.hypot(CW, CH) * 0.55;
+  return Math.min(CW, CH) * (settings.radiusPct / 100);
 }
 
-/* ==========================================================
-   信号灯脉冲
-========================================================== */
 const signalEl = document.getElementById('signal');
 
 function signalPulse() {
@@ -288,12 +1160,9 @@ function signalPulse() {
   signalEl.classList.add('beat');
 }
 
-/* ==========================================================
-   心跳 → 粒子迸发
-========================================================== */
 function onBeat(beatTime) {
-  const rx = W - (simTime - beatTime) * PX_PER_MS;
-  const ry = baseY - A * 0.95;
+  const rx = CW - (simTime - beatTime) * PX_PER_MS;
+  const ry = BG_BASEY - BG_A * 0.95;
 
   signalPulse();
 
@@ -306,12 +1175,12 @@ function onBeat(beatTime) {
     const n = Math.round((baseN + Math.random() * 180) * mult);
 
     for (let i = 0; i < n; i++) {
-      const ang = Math.random() * TAU;
+      const ang = Math.random() * Math.PI * 2;
       const u = Math.random();
       const r = cloudR * Math.pow(u, settings.fullDist ? 0.62 : 0.55);
       const px = center.x + Math.cos(ang) * r;
       const py = center.y + Math.sin(ang) * r * 0.88;
-      if (px < -40 || px > W + 40 || py < -40 || py > H + 40) continue;
+      if (px < -60 || px > CW + 60 || py < -60 || py > CH + 60) continue;
 
       const spd = 6 + Math.random() * 44;
       const v = pickVelocity(spd);
@@ -320,9 +1189,9 @@ function onBeat(beatTime) {
         x: px, y: py, vx: v.vx, vy: v.vy,
         life: 1,
         decay: 0.055 + Math.random() * 0.14,
-        size: 1.4,
+        size: 1.8,
         trail: null,
-        twinklePhase: Math.random() * TAU,
+        twinklePhase: Math.random() * Math.PI * 2,
         twinkleSpeed: 1.2 + Math.random() * 4.5,
         star: true
       });
@@ -336,7 +1205,7 @@ function onBeat(beatTime) {
         x: rx, y: ry, vx: v.vx, vy: v.vy,
         life: 1,
         decay: 0.35 + Math.random() * 0.4,
-        size: 3.0,
+        size: 3.6,
         trail: [rx, ry],
         maxTrail: 9,
         star: false
@@ -345,15 +1214,15 @@ function onBeat(beatTime) {
   }
 
   ripples.push({
-    x: rx, y: ry, r: 4,
-    maxR: 100 + Math.random() * 70,
+    x: rx, y: ry, r: 6,
+    maxR: 140 + Math.random() * 100,
     life: 1,
     decay: 1.4 + Math.random() * 0.7
   });
 }
 
 /* ==========================================================
-   更新
+   ================ 主更新 ==================================
 ========================================================== */
 function update(dt) {
   let target;
@@ -391,10 +1260,10 @@ function update(dt) {
     nextSampleTime += SAMPLE_MS;
   }
 
-  const maxAge = (W + 260) / PX_PER_MS;
+  const maxAge = (CW + 400) / PX_PER_MS;
   while (samples.length && (simTime - samples[0].t) > maxAge) samples.shift();
 
-  const markAge = (W + 400) / PX_PER_MS;
+  const markAge = (CW + 600) / PX_PER_MS;
   for (let i = marks.length - 1; i >= 0; i--) {
     if (simTime - marks[i].t > markAge) marks.splice(i, 1);
   }
@@ -421,7 +1290,7 @@ function update(dt) {
 }
 
 /* ==========================================================
-   信号强度 UI
+   ================ 信号强度 UI =============================
 ========================================================== */
 const sigBarEls = document.querySelectorAll('#sigStrengthRow .sigBars i');
 const sigPctEl  = document.getElementById('sigPct');
@@ -437,363 +1306,40 @@ function updateSigStrengthUI() {
 }
 
 /* ==========================================================
-   绘制
+   ================ 渲染循环 ================================
 ========================================================== */
-function drawGrid() {
-  const minor = 10, major = 50;
-  ctx.lineWidth = 1;
-
-  ctx.strokeStyle = 'rgba(255,255,255,0.030)';
-  ctx.beginPath();
-  for (let x = 0; x < W; x += minor) { ctx.moveTo(x + .5, 0); ctx.lineTo(x + .5, H); }
-  for (let y = 0; y < H; y += minor) { ctx.moveTo(0, y + .5); ctx.lineTo(W, y + .5); }
-  ctx.stroke();
-
-  ctx.strokeStyle = 'rgba(255,255,255,0.065)';
-  ctx.beginPath();
-  for (let x = 0; x < W; x += major) { ctx.moveTo(x + .5, 0); ctx.lineTo(x + .5, H); }
-  for (let y = 0; y < H; y += major) { ctx.moveTo(0, y + .5); ctx.lineTo(W, y + .5); }
-  ctx.stroke();
-
-  ctx.strokeStyle = 'rgba(255,255,255,0.09)';
-  ctx.beginPath();
-  ctx.moveTo(0, baseY + .5);
-  ctx.lineTo(W, baseY + .5);
-  ctx.stroke();
-}
-
-function drawWave() {
-  const n = samples.length;
-  if (n < 2) return;
-
-  const path = new Path2D();
-  let started = false;
-
-  for (let i = 0; i < n; i++) {
-    const s = samples[i];
-    const x = W - (simTime - s.t) * PX_PER_MS;
-    if (x < -30) continue;
-    if (x > W + 30) break;
-    const y = baseY - s.v * A;
-    if (!started) { path.moveTo(x, y); started = true; }
-    else path.lineTo(x, y);
-  }
-  if (!started) return;
-
-  const grad = ctx.createLinearGradient(0, 0, W * 0.26, 0);
-  grad.addColorStop(0, 'rgba(255,255,255,0)');
-  grad.addColorStop(1, 'rgba(255,255,255,1)');
-
-  ctx.save();
-  ctx.lineCap  = 'round';
-  ctx.lineJoin = 'round';
-  ctx.strokeStyle = grad;
-
-  const layers = [
-    { w: 16,  a: 0.035 },
-    { w: 8,   a: 0.070 },
-    { w: 4,   a: 0.160 },
-    { w: 2,   a: 0.400 },
-    { w: 0.95,a: 1.000 }
-  ];
-  for (let i = 0; i < layers.length; i++) {
-    ctx.globalAlpha = layers[i].a;
-    ctx.lineWidth   = layers[i].w;
-    ctx.stroke(path);
-  }
-  ctx.restore();
-  ctx.globalAlpha = 1;
-}
-
-function drawMarks() {
-  if (marks.length === 0) return;
-  ctx.save();
-  for (let i = 0; i < marks.length; i++) {
-    const m = marks[i];
-    const x = W - (simTime - m.t) * PX_PER_MS;
-    if (x < -30 || x > W + 30) continue;
-
-    const topY = baseY - A * 1.2;
-    const botY = baseY + A * 0.8;
-
-    ctx.strokeStyle = 'rgba(255,255,255,.28)';
-    ctx.lineWidth = 1;
-    ctx.beginPath();
-    ctx.moveTo(x, topY);
-    ctx.lineTo(x, botY);
-    ctx.stroke();
-
-    ctx.globalAlpha = 0.28;
-    ctx.fillStyle = '#fff';
-    ctx.beginPath();
-    ctx.arc(x, topY, 8, 0, TAU);
-    ctx.fill();
-    ctx.globalAlpha = 1;
-
-    ctx.fillStyle = '#fff';
-    ctx.beginPath();
-    ctx.arc(x, topY, 3.5, 0, TAU);
-    ctx.fill();
-  }
-  ctx.restore();
-}
-
-function drawPickerCrosshair() {
-  if (!pickingAnchor) return;
-  if (!mouseX && !mouseY) return;
-  ctx.save();
-  ctx.strokeStyle = 'rgba(255,255,255,.55)';
-  ctx.lineWidth = 1;
-  ctx.beginPath();
-  ctx.moveTo(mouseX - 22, mouseY); ctx.lineTo(mouseX - 6, mouseY);
-  ctx.moveTo(mouseX + 6, mouseY);  ctx.lineTo(mouseX + 22, mouseY);
-  ctx.moveTo(mouseX, mouseY - 22); ctx.lineTo(mouseX, mouseY - 6);
-  ctx.moveTo(mouseX, mouseY + 6);  ctx.lineTo(mouseX, mouseY + 22);
-  ctx.stroke();
-  ctx.beginPath();
-  ctx.arc(mouseX, mouseY, 3, 0, TAU);
-  ctx.stroke();
-  ctx.restore();
-}
-
-let mouseX = 0, mouseY = 0;
-
-/* ==========================================================
-   绘制粒子（带玻璃边缘挤压）
-========================================================== */
-function drawSparks(dtSec) {
-  ctx.save();
-  ctx.globalCompositeOperation = 'lighter';
-
-  const damp    = Math.pow(0.30, dtSec);
-  const col     = settings.particleColor;
-  const timeSec = simTime * 0.001;
-
-  for (let i = sparks.length - 1; i >= 0; i--) {
-    const p = sparks[i];
-
-    /* 真实物理更新 */
-    p.life -= dtSec * p.decay;
-    if (p.life <= 0) { sparks.splice(i, 1); continue; }
-
-    p.x += p.vx * dtSec;
-    p.y += p.vy * dtSec;
-    p.vx *= damp;
-    p.vy *= damp;
-    if (p.star) p.vy -= 2.5 * dtSec;
-
-    const a = p.life * p.life;
-
-    let tw = 1;
-    if (p.star) {
-      const s = Math.sin(p.twinklePhase + timeSec * p.twinkleSpeed);
-      tw = 0.22 + 0.78 * (0.5 + 0.5 * s);
-    }
-
-    /* 应用玻璃边缘挤压（仅改变绘制时的位置和形状，不改变真实位置） */
-    const warp = getEdgeWarp(p.x, p.y);
-    const drawX = p.x + warp.dx;
-    const drawY = p.y + warp.dy;
-
-    /* 拖尾 */
-    if (p.trail && p.trail.length) {
-      p.trail.push(drawX, drawY);
-      while (p.trail.length > p.maxTrail * 2) {
-        p.trail.shift(); p.trail.shift();
-      }
-      const tn = p.trail.length / 2;
-      for (let j = 0; j < tn; j++) {
-        const k = j / tn;
-        const ta = a * k * k * 0.45;
-        if (ta < 0.01) continue;
-        const tr = p.size * k * 0.85;
-        if (tr < 0.2) continue;
-        ctx.globalAlpha = ta;
-        ctx.fillStyle = col;
-        ctx.beginPath();
-        ctx.arc(p.trail[j * 2], p.trail[j * 2 + 1], tr, 0, TAU);
-        ctx.fill();
-      }
-    }
-
-    const cr = p.size * (0.5 + p.life * 0.9);
-
-    /* 粒子核心：如果有挤压，绘制成椭圆 */
-    if (warp.sx !== 1 || warp.sy !== 1) {
-      ctx.save();
-      ctx.translate(drawX, drawY);
-      ctx.rotate(warp.rot);
-      ctx.scale(warp.sx, warp.sy);
-
-      ctx.globalAlpha = a * tw;
-      ctx.fillStyle = col;
-      ctx.beginPath();
-      ctx.arc(0, 0, cr, 0, TAU);
-      ctx.fill();
-
-      if (p.star && p.size > 1.0) {
-        ctx.globalAlpha = a * tw * 0.22;
-        ctx.beginPath();
-        ctx.arc(0, 0, cr * 3.2, 0, TAU);
-        ctx.fill();
-      }
-
-      ctx.restore();
-    } else {
-      ctx.globalAlpha = a * tw;
-      ctx.fillStyle = col;
-      ctx.beginPath();
-      ctx.arc(drawX, drawY, cr, 0, TAU);
-      ctx.fill();
-
-      if (p.star && p.size > 1.0) {
-        ctx.globalAlpha = a * tw * 0.22;
-        ctx.beginPath();
-        ctx.arc(drawX, drawY, cr * 3.2, 0, TAU);
-        ctx.fill();
-      }
-    }
-
-    /* 亮核的十字光芒 */
-    if (!p.star && p.size > 2.2 && p.life > 0.4) {
-      const L = p.size * 3.5 * p.life;
-      ctx.globalAlpha = a * 0.5;
-      ctx.fillRect(drawX - L, drawY - 0.5, L * 2, 1);
-      ctx.fillRect(drawX - 0.5, drawY - L, 1, L * 2);
-    }
-  }
-
-  /* 涟漪 */
-  for (let i = ripples.length - 1; i >= 0; i--) {
-    const rp = ripples[i];
-    rp.life -= dtSec * rp.decay;
-    if (rp.life <= 0) { ripples.splice(i, 1); continue; }
-    const t = 1 - rp.life;
-    const ease = 1 - Math.pow(1 - t, 2.4);
-    const r = rp.r + (rp.maxR - rp.r) * ease;
-    ctx.globalAlpha = rp.life * rp.life * 0.5;
-    ctx.strokeStyle = col;
-    ctx.lineWidth = 1.5 * rp.life + 0.2;
-    ctx.beginPath();
-    ctx.arc(rp.x, rp.y, r, 0, TAU);
-    ctx.stroke();
-  }
-
-  ctx.restore();
-  ctx.globalAlpha = 1;
-}
-
-/* ==========================================================
-   局部放大
-========================================================== */
-function roundRect(c, x, y, w, h, r) {
-  c.beginPath();
-  c.moveTo(x + r, y);
-  c.arcTo(x + w, y, x + w, y + h, r);
-  c.arcTo(x + w, y + h, x, y + h, r);
-  c.arcTo(x, y + h, x, y, r);
-  c.arcTo(x, y, x + w, y, r);
-  c.closePath();
-}
-
-function drawMagnify() {
-  if (!settings.magnify) return;
-  if (samples.length < 10) return;
-
-  const boxW = Math.min(260, W * 0.36);
-  const boxH = boxW * 0.62;
-  const bx = W - boxW - 20;
-  const by = H - boxH - 140;
-
-  const startT = simTime - beatInterval * 0.98;
-  const seg = [];
-  for (let i = samples.length - 1; i >= 0; i--) {
-    const s = samples[i];
-    if (s.t < startT) break;
-    seg.unshift(s);
-  }
-  if (seg.length < 4) return;
-
-  ctx.save();
-  ctx.fillStyle = 'rgba(0,0,0,.58)';
-  ctx.strokeStyle = 'rgba(255,255,255,.18)';
-  ctx.lineWidth = 1;
-  roundRect(ctx, bx, by, boxW, boxH, 10);
-  ctx.fill();
-  ctx.stroke();
-
-  ctx.fillStyle = 'rgba(255,255,255,.45)';
-  ctx.font = '10px ui-monospace, "SF Mono", Menlo, monospace';
-  ctx.textBaseline = 'top';
-  ctx.fillText('ECG · 局部放大', bx + 11, by + 9);
-
-  const padX = 10, padY = 26;
-  const innerW = boxW - padX * 2;
-  const innerH = boxH - padY - 8;
-  const midY = by + padY + innerH / 2;
-
-  const tStart = seg[0].t;
-  const tEnd   = seg[seg.length - 1].t;
-  const tSpan  = (tEnd - tStart) || 1;
-
-  const scaleX = innerW / tSpan;
-  const scaleY = innerH * 0.40;
-
-  const path = new Path2D();
-  for (let i = 0; i < seg.length; i++) {
-    const s = seg[i];
-    const px = bx + padX + (s.t - tStart) * scaleX;
-    const py = midY - s.v * scaleY;
-    if (i === 0) path.moveTo(px, py);
-    else path.lineTo(px, py);
-  }
-
-  ctx.lineCap = 'round';
-  ctx.lineJoin = 'round';
-  ctx.strokeStyle = '#fff';
-  const layers = [
-    { w: 9,  a: 0.05 },
-    { w: 4.5,a: 0.15 },
-    { w: 2.2,a: 0.45 },
-    { w: 1,  a: 1.00 }
-  ];
-  for (let i = 0; i < layers.length; i++) {
-    ctx.globalAlpha = layers[i].a;
-    ctx.lineWidth = layers[i].w;
-    ctx.stroke(path);
-  }
-  ctx.globalAlpha = 1;
-  ctx.restore();
-}
-
-function render(dtSec) {
-  /* 每次渲染前，如果面板矩形需要更新，就重新计算一次 */
-  if (panelRectsDirty) updatePanelRects();
-
-  ctx.fillStyle = '#000';
-  ctx.fillRect(0, 0, W, H);
-  drawGrid();
-  drawWave();
-  drawMarks();
-  drawSparks(dtSec);
-  drawPickerCrosshair();
-  drawMagnify();
-}
-
 let lastT = 0;
+
 function loop(now) {
   if (!lastT) lastT = now;
   let dt = now - lastT;
   lastT = now;
   if (dt < 0) dt = 0;
   if (dt > 50) dt = 50;
+
+  const dtSec = dt / 1000;
+  const timeSec = now / 1000;
+
+  /* 1. 更新业务状态 */
   update(dt);
-  render(dt / 1000);
+
+  /* 2. Layer 1：Background 渲染到离屏 2D 画布 */
+  bgRender(dtSec);
+
+  /* 3. 上传为纹理 */
+  uploadBackground();
+
+  /* 4. 生成模糊金字塔 */
+  updatePyramid();
+
+  /* 5. Layer 2：Glass 渲染到主 canvas */
+  renderGlass(timeSec);
+
   requestAnimationFrame(loop);
 }
 
 /* ==========================================================
-   DOM 引用
+   ================ DOM 引用 ================================
 ========================================================== */
 const btnConn  = document.getElementById('btnConnect');
 const statusEl = document.getElementById('status');
@@ -817,15 +1363,17 @@ const clearMarks= document.getElementById('clearMarks');
 const pickHintEl = document.getElementById('pickHint');
 
 const setGlass      = document.getElementById('setGlass');
-const setGlassAlpha = document.getElementById('setGlassAlpha');
-const glassAlphaRow = document.getElementById('glassAlphaRow');
-const glassAlphaHint= document.getElementById('glassAlphaHint');
-
-const setEdgeWarp      = document.getElementById('setEdgeWarp');
-const setWarpStrength  = document.getElementById('setWarpStrength');
-const edgeWarpRow      = document.getElementById('edgeWarpRow');
-const warpStrengthRow  = document.getElementById('warpStrengthRow');
-const warpStrengthHint = document.getElementById('warpStrengthHint');
+const setThickness  = document.getElementById('setThickness');
+const setIOR        = document.getElementById('setIOR');
+const setDisp       = document.getElementById('setDisp');
+const setGlassY     = document.getElementById('setGlassY');
+const setGlassH     = document.getElementById('setGlassH');
+const thicknessHint = document.getElementById('thicknessHint');
+const iorHint       = document.getElementById('iorHint');
+const dispHint      = document.getElementById('dispHint');
+const glassYHint    = document.getElementById('glassYHint');
+const glassHHint    = document.getElementById('glassHHint');
+const glassParamsRow= document.getElementById('glassParamsRow');
 
 const setParticles  = document.getElementById('setParticles');
 const setMagnify    = document.getElementById('setMagnify');
@@ -849,40 +1397,10 @@ const colorRow       = document.getElementById('colorRow');
 const sigStrengthRow = document.getElementById('sigStrengthRow');
 
 /* ==========================================================
-   液态玻璃开关
+   ================ 模态面板 ================================
 ========================================================== */
-function applyGlass() {
-  if (settings.glass) {
-    document.body.classList.add('liquid-glass');
-    glassAlphaRow.style.display = '';
-    edgeWarpRow.style.display = '';
-    warpStrengthRow.style.display = '';
-
-    document.documentElement.style.setProperty('--glass-alpha', settings.glassAlpha);
-    glassAlphaHint.textContent = Math.round(settings.glassAlpha * 100) + '%';
-    warpStrengthHint.textContent = Math.round(settings.warpStrength * 100) + '%';
-
-    /* 开启液态玻璃时，立即重新获取面板矩形位置 */
-    schedulePanelRectsUpdate();
-  } else {
-    document.body.classList.remove('liquid-glass');
-    glassAlphaRow.style.display = 'none';
-    edgeWarpRow.style.display = 'none';
-    warpStrengthRow.style.display = 'none';
-  }
-}
-
-function updateGlassAlpha(val) {
-  settings.glassAlpha = val;
-  document.documentElement.style.setProperty('--glass-alpha', val);
-  glassAlphaHint.textContent = Math.round(val * 100) + '%';
-}
-
-/* ==========================================================
-   模态面板
-========================================================== */
-function openModal(el)  { el.classList.add('show'); schedulePanelRectsUpdate(); }
-function closeModal(el) { el.classList.remove('show'); schedulePanelRectsUpdate(); }
+function openModal(el)  { el.classList.add('show'); }
+function closeModal(el) { el.classList.remove('show'); }
 function closeAllModals() {
   closeModal(aboutPanel);
   closeModal(settingsPanel);
@@ -915,7 +1433,7 @@ showHelp.addEventListener('click', () => {
 });
 
 /* ==========================================================
-   拾取锚点
+   ================ 拾取锚点 ================================
 ========================================================== */
 function enterPicking() {
   pickingAnchor = true;
@@ -960,11 +1478,14 @@ function updateDistUI() {
 }
 
 /* ==========================================================
-   设置绑定
+   ================ 设置绑定 ================================
 ========================================================== */
 setGlass.checked       = settings.glass;
-setEdgeWarp.checked    = settings.edgeWarp;
-setWarpStrength.value  = String(Math.round(settings.warpStrength * 100));
+setThickness.value     = String(Math.round(settings.glassThickness * 1000));
+setIOR.value           = String(Math.round(settings.ior * 100));
+setDisp.value          = String(Math.round(settings.dispersion * 1000));
+setGlassY.value        = String(settings.glassY);
+setGlassH.value        = String(settings.glassH);
 setParticles.checked   = settings.particles;
 setMagnify.checked     = settings.magnify;
 setMark.checked        = settings.mark;
@@ -975,33 +1496,44 @@ setSway.value          = settings.sway;
 setDensity.value       = String(settings.density);
 setAnchor.value        = settings.anchor;
 setRadius.value        = String(settings.radiusPct);
-setGlassAlpha.value    = String(Math.round(settings.glassAlpha * 100));
 
-radiusHint.textContent = '屏幕短边的 ' + settings.radiusPct + '%';
-warpStrengthHint.textContent = Math.round(settings.warpStrength * 100) + '%';
+thicknessHint.textContent = settings.glassThickness.toFixed(3);
+iorHint.textContent       = settings.ior.toFixed(2);
+dispHint.textContent      = settings.dispersion.toFixed(3);
+glassYHint.textContent    = '屏幕 ' + settings.glassY + '%';
+glassHHint.textContent    = '屏幕 ' + settings.glassH + '%';
+radiusHint.textContent    = '屏幕短边的 ' + settings.radiusPct + '%';
 updateCustomAnchorHint();
 updateDistUI();
-applyGlass();
 
 setGlass.addEventListener('change', () => {
   settings.glass = setGlass.checked;
-  applyGlass();
+  glassParamsRow.style.opacity = settings.glass ? '1' : '0.4';
 });
 
-setGlassAlpha.addEventListener('input', () => {
-  const val = parseInt(setGlassAlpha.value, 10) / 100;
-  updateGlassAlpha(val);
+setThickness.addEventListener('input', () => {
+  settings.glassThickness = parseInt(setThickness.value, 10) / 1000;
+  thicknessHint.textContent = settings.glassThickness.toFixed(3);
 });
 
-setEdgeWarp.addEventListener('change', () => {
-  settings.edgeWarp = setEdgeWarp.checked;
-  /* 开关切换时刷新面板矩形 */
-  schedulePanelRectsUpdate();
+setIOR.addEventListener('input', () => {
+  settings.ior = parseInt(setIOR.value, 10) / 100;
+  iorHint.textContent = settings.ior.toFixed(2);
 });
 
-setWarpStrength.addEventListener('input', () => {
-  settings.warpStrength = parseInt(setWarpStrength.value, 10) / 100;
-  warpStrengthHint.textContent = Math.round(settings.warpStrength * 100) + '%';
+setDisp.addEventListener('input', () => {
+  settings.dispersion = parseInt(setDisp.value, 10) / 1000;
+  dispHint.textContent = settings.dispersion.toFixed(3);
+});
+
+setGlassY.addEventListener('input', () => {
+  settings.glassY = parseInt(setGlassY.value, 10) || 55;
+  glassYHint.textContent = '屏幕 ' + settings.glassY + '%';
+});
+
+setGlassH.addEventListener('input', () => {
+  settings.glassH = parseInt(setGlassH.value, 10) || 14;
+  glassHHint.textContent = '屏幕 ' + settings.glassH + '%';
 });
 
 setParticles.addEventListener('change', () => {
@@ -1062,7 +1594,7 @@ colorRow.addEventListener('click', (e) => {
 clearMarks.addEventListener('click', () => { marks.length = 0; });
 
 /* ==========================================================
-   QQ 群复制
+   ================ QQ 群复制 ===============================
 ========================================================== */
 function fallbackCopy(text, cb) {
   try {
@@ -1099,35 +1631,39 @@ if (qqLink) {
 }
 
 /* ==========================================================
-   Canvas 事件
+   ================ Canvas 事件（拾取 / 打点） ==============
 ========================================================== */
-canvas.addEventListener('mousemove', (e) => {
-  mouseX = e.clientX;
-  mouseY = e.clientY;
-});
-
 canvas.addEventListener('click', (e) => {
-  const x = e.clientX, y = e.clientY;
+  const rect = canvas.getBoundingClientRect();
+
+  /* 屏幕坐标 → canvas 内部分辨率 */
+  const cx = (e.clientX - rect.left) / rect.width  * CW;
+  const cy = (e.clientY - rect.top)  / rect.height * CH;
+
   if (pickingAnchor) {
-    settings.customAnchor = { x: x / W, y: y / H };
+    settings.customAnchor = { x: cx / CW, y: cy / CH };
     updateCustomAnchorHint();
     exitPicking();
     return;
   }
+
   if (!settings.mark) return;
-  if (y < baseY - A * 1.7 || y > baseY + A * 1.7) return;
+
+  if (cy < BG_BASEY - BG_A * 1.7 || cy > BG_BASEY + BG_A * 1.7) return;
+
+  /* 排除局部放大窗口 */
   if (settings.magnify) {
-    const boxW = Math.min(260, W * 0.36);
-    const boxH = boxW * 0.62;
-    const bx = W - boxW - 20;
-    const by = H - boxH - 140;
-    if (x >= bx && x <= bx + boxW && y >= by && y <= by + boxH) return;
+    const boxW = 360, boxH = 220;
+    const bx = CW - boxW - 30;
+    const by = CH - boxH - 380;
+    if (cx >= bx && cx <= bx + boxW && cy >= by && cy <= by + boxH) return;
   }
-  marks.push({ t: simTime - (W - x) / PX_PER_MS });
+
+  marks.push({ t: simTime - (CW - cx) / PX_PER_MS });
 });
 
 /* ==========================================================
-   蓝牙心率
+   ================ 蓝牙心率 ================================
 ========================================================== */
 function setStatus(text, cls) {
   statusEl.textContent = text;
@@ -1180,7 +1716,6 @@ async function connect() {
     btnConn.disabled = false;
     srcTag.textContent = 'LIVE';
     setStatus('已连接 · ' + (device.name || '心率设备') + ' · 实时接收中', 'ok');
-    schedulePanelRectsUpdate();
   } catch (err) {
     btnConn.disabled = false;
     usingReal = false;
@@ -1198,7 +1733,6 @@ function onDisconnected() {
   btnConn.dataset.on = '0';
   srcTag.textContent = 'SIM';
   setStatus('设备已断开 · 已切回模拟模式');
-  schedulePanelRectsUpdate();
 }
 
 btnConn.addEventListener('click', () => {
@@ -1222,7 +1756,7 @@ speedEl.addEventListener('input', () => {
 });
 
 /* ==========================================================
-   初始化
+   ================ 初始化 ==================================
 ========================================================== */
 function init() {
   if (!navigator.bluetooth) {
@@ -1234,12 +1768,10 @@ function init() {
   }
 
   speedVal.textContent = speed.toFixed(1) + ' km/h';
-  resize();
+  glassParamsRow.style.opacity = settings.glass ? '1' : '0.4';
+
   nextSampleTime = 0;
   simTime = 0;
-
-  /* 延迟一下再获取面板位置，等首帧渲染完成后布局才稳定 */
-  setTimeout(schedulePanelRectsUpdate, 200);
 
   requestAnimationFrame(loop);
 }
