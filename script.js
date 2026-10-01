@@ -29,6 +29,8 @@ function resize() {
 
   A     = Math.min(H * 0.26, 200);
   baseY = cy + 0.375 * A;
+
+  schedulePanelRectsUpdate();
 }
 
 window.addEventListener('resize', resize);
@@ -40,8 +42,8 @@ window.addEventListener('orientationchange', () => setTimeout(resize, 120));
 const settings = {
   glass:         false,
   glassAlpha:    0.30,
-  lens:          true,
-  lensY:         55,
+  edgeWarp:      true,
+  warpStrength:  1.0,
   particles:     true,
   density:       1.6,
   particleColor: '#ffffff',
@@ -84,6 +86,122 @@ let pickingAnchor = false;
 const sparks  = [];
 const ripples = [];
 const marks   = [];
+
+/* ==========================================================
+   玻璃面板边缘挤压
+   —— 每帧获取所有玻璃面板的矩形，粒子经过其边缘时被拉伸
+========================================================== */
+const panelRects = [];        // 缓存的面板矩形
+let panelRectsDirty = false;
+
+function schedulePanelRectsUpdate() {
+  panelRectsDirty = true;
+}
+
+function updatePanelRects() {
+  panelRects.length = 0;
+
+  const selectors = [
+    '.topBtn',
+    '#panel',
+    '.modalCard',
+    '.modalClose',
+    '#btnConnect'
+  ];
+
+  for (let i = 0; i < selectors.length; i++) {
+    const els = document.querySelectorAll(selectors[i]);
+    for (let j = 0; j < els.length; j++) {
+      const el = els[j];
+      const r = el.getBoundingClientRect();
+      if (r.width > 4 && r.height > 4 && r.bottom > 0 && r.top < H) {
+        panelRects.push({
+          x: r.left,
+          y: r.top,
+          w: r.width,
+          h: r.height
+        });
+      }
+    }
+  }
+
+  panelRectsDirty = false;
+}
+
+/* 计算点到矩形的最近点 */
+function nearestPointOnRect(px, py, rect) {
+  const nx = Math.max(rect.x, Math.min(px, rect.x + rect.w));
+  const ny = Math.max(rect.y, Math.min(py, rect.y + rect.h));
+  return { x: nx, y: ny };
+}
+
+/* 对粒子位置和形状应用挤压
+   —— 返回绘制时使用的显示坐标和缩放系数 */
+const INFLUENCE = 60;   // 影响半径（px）
+
+function getEdgeWarp(px, py) {
+  if (!settings.edgeWarp || panelRects.length === 0) {
+    return { dx: 0, dy: 0, sx: 1, sy: 1, rot: 0 };
+  }
+
+  let bestT = 0;
+  let bestDx = 0, bestDy = 0;
+  let bestNx = 0, bestNy = 0;
+  let bestInside = false;
+
+  for (let i = 0; i < panelRects.length; i++) {
+    const rect = panelRects[i];
+
+    const np = nearestPointOnRect(px, py, rect);
+    const ndx = px - np.x;
+    const ndy = py - np.y;
+    const dist = Math.hypot(ndx, ndy);
+
+    if (dist > INFLUENCE) continue;
+
+    const inside =
+      px > rect.x && px < rect.x + rect.w &&
+      py > rect.y && py < rect.y + rect.h;
+
+    const t = 1 - dist / INFLUENCE;
+    if (t > bestT) {
+      bestT = t;
+      bestDx = ndx;
+      bestDy = ndy;
+      bestInside = inside;
+      if (dist > 0.001) {
+        bestNx = ndx / dist;
+        bestNy = ndy / dist;
+      }
+    }
+  }
+
+  if (bestT <= 0) {
+    return { dx: 0, dy: 0, sx: 1, sy: 1, rot: 0 };
+  }
+
+  const strength = settings.warpStrength || 1.0;
+
+  /* 挤压：越靠近边缘，垂直方向越被压缩、平行方向越被拉长 */
+  const stretch = bestT * bestT * 2.2 * strength;
+
+  /* 位移：外部向内拉，内部向边缘推 */
+  const pull = bestT * bestT * 14 * strength;
+
+  const dx = bestInside ? bestNx * pull : -bestNx * pull;
+  const dy = bestInside ? bestNy * pull : -bestNy * pull;
+
+  /* 椭圆方向：沿法线方向拉长，切向压缩 */
+  const rot = Math.atan2(bestNy, bestNx);
+
+  return {
+    dx: dx,
+    dy: dy,
+    sx: 1 + stretch,               // 沿法线拉伸
+    sy: 1 / (1 + stretch * 0.45),  // 沿切线压缩
+    rot: rot
+  };
+}
 
 /* ==========================================================
    心电波形
@@ -141,9 +259,6 @@ function addSpark(p) {
   }
 }
 
-/* ==========================================================
-   分布中心 / 半径
-========================================================== */
 function getCloudCenter(rx, ry) {
   if (settings.fullDist) return { x: W / 2, y: H / 2 };
   const a = settings.anchor;
@@ -443,6 +558,9 @@ function drawPickerCrosshair() {
 
 let mouseX = 0, mouseY = 0;
 
+/* ==========================================================
+   绘制粒子（带玻璃边缘挤压）
+========================================================== */
 function drawSparks(dtSec) {
   ctx.save();
   ctx.globalCompositeOperation = 'lighter';
@@ -453,6 +571,8 @@ function drawSparks(dtSec) {
 
   for (let i = sparks.length - 1; i >= 0; i--) {
     const p = sparks[i];
+
+    /* 真实物理更新 */
     p.life -= dtSec * p.decay;
     if (p.life <= 0) { sparks.splice(i, 1); continue; }
 
@@ -470,8 +590,14 @@ function drawSparks(dtSec) {
       tw = 0.22 + 0.78 * (0.5 + 0.5 * s);
     }
 
+    /* 应用玻璃边缘挤压（仅改变绘制时的位置和形状，不改变真实位置） */
+    const warp = getEdgeWarp(p.x, p.y);
+    const drawX = p.x + warp.dx;
+    const drawY = p.y + warp.dy;
+
+    /* 拖尾 */
     if (p.trail && p.trail.length) {
-      p.trail.push(p.x, p.y);
+      p.trail.push(drawX, drawY);
       while (p.trail.length > p.maxTrail * 2) {
         p.trail.shift(); p.trail.shift();
       }
@@ -491,27 +617,53 @@ function drawSparks(dtSec) {
     }
 
     const cr = p.size * (0.5 + p.life * 0.9);
-    ctx.globalAlpha = a * tw;
-    ctx.fillStyle = col;
-    ctx.beginPath();
-    ctx.arc(p.x, p.y, cr, 0, TAU);
-    ctx.fill();
 
-    if (p.star && p.size > 1.0) {
-      ctx.globalAlpha = a * tw * 0.22;
+    /* 粒子核心：如果有挤压，绘制成椭圆 */
+    if (warp.sx !== 1 || warp.sy !== 1) {
+      ctx.save();
+      ctx.translate(drawX, drawY);
+      ctx.rotate(warp.rot);
+      ctx.scale(warp.sx, warp.sy);
+
+      ctx.globalAlpha = a * tw;
+      ctx.fillStyle = col;
       ctx.beginPath();
-      ctx.arc(p.x, p.y, cr * 3.2, 0, TAU);
+      ctx.arc(0, 0, cr, 0, TAU);
       ctx.fill();
+
+      if (p.star && p.size > 1.0) {
+        ctx.globalAlpha = a * tw * 0.22;
+        ctx.beginPath();
+        ctx.arc(0, 0, cr * 3.2, 0, TAU);
+        ctx.fill();
+      }
+
+      ctx.restore();
+    } else {
+      ctx.globalAlpha = a * tw;
+      ctx.fillStyle = col;
+      ctx.beginPath();
+      ctx.arc(drawX, drawY, cr, 0, TAU);
+      ctx.fill();
+
+      if (p.star && p.size > 1.0) {
+        ctx.globalAlpha = a * tw * 0.22;
+        ctx.beginPath();
+        ctx.arc(drawX, drawY, cr * 3.2, 0, TAU);
+        ctx.fill();
+      }
     }
 
+    /* 亮核的十字光芒 */
     if (!p.star && p.size > 2.2 && p.life > 0.4) {
       const L = p.size * 3.5 * p.life;
       ctx.globalAlpha = a * 0.5;
-      ctx.fillRect(p.x - L, p.y - 0.5, L * 2, 1);
-      ctx.fillRect(p.x - 0.5, p.y - L, 1, L * 2);
+      ctx.fillRect(drawX - L, drawY - 0.5, L * 2, 1);
+      ctx.fillRect(drawX - 0.5, drawY - L, 1, L * 2);
     }
   }
 
+  /* 涟漪 */
   for (let i = ripples.length - 1; i >= 0; i--) {
     const rp = ripples[i];
     rp.life -= dtSec * rp.decay;
@@ -531,6 +683,9 @@ function drawSparks(dtSec) {
   ctx.globalAlpha = 1;
 }
 
+/* ==========================================================
+   局部放大
+========================================================== */
 function roundRect(c, x, y, w, h, r) {
   c.beginPath();
   c.moveTo(x + r, y);
@@ -612,6 +767,9 @@ function drawMagnify() {
 }
 
 function render(dtSec) {
+  /* 每次渲染前，如果面板矩形需要更新，就重新计算一次 */
+  if (panelRectsDirty) updatePanelRects();
+
   ctx.fillStyle = '#000';
   ctx.fillRect(0, 0, W, H);
   drawGrid();
@@ -663,12 +821,11 @@ const setGlassAlpha = document.getElementById('setGlassAlpha');
 const glassAlphaRow = document.getElementById('glassAlphaRow');
 const glassAlphaHint= document.getElementById('glassAlphaHint');
 
-const setLens    = document.getElementById('setLens');
-const setLensY   = document.getElementById('setLensY');
-const lensRow    = document.getElementById('lensRow');
-const lensYRow   = document.getElementById('lensYRow');
-const lensYHint  = document.getElementById('lensYHint');
-const lensEl     = document.getElementById('lens');
+const setEdgeWarp      = document.getElementById('setEdgeWarp');
+const setWarpStrength  = document.getElementById('setWarpStrength');
+const edgeWarpRow      = document.getElementById('edgeWarpRow');
+const warpStrengthRow  = document.getElementById('warpStrengthRow');
+const warpStrengthHint = document.getElementById('warpStrengthHint');
 
 const setParticles  = document.getElementById('setParticles');
 const setMagnify    = document.getElementById('setMagnify');
@@ -692,36 +849,27 @@ const colorRow       = document.getElementById('colorRow');
 const sigStrengthRow = document.getElementById('sigStrengthRow');
 
 /* ==========================================================
-   液态玻璃 / 透镜带
+   液态玻璃开关
 ========================================================== */
 function applyGlass() {
   if (settings.glass) {
     document.body.classList.add('liquid-glass');
     glassAlphaRow.style.display = '';
-    lensRow.style.display = '';
-    lensYRow.style.display = '';
+    edgeWarpRow.style.display = '';
+    warpStrengthRow.style.display = '';
 
     document.documentElement.style.setProperty('--glass-alpha', settings.glassAlpha);
     glassAlphaHint.textContent = Math.round(settings.glassAlpha * 100) + '%';
+    warpStrengthHint.textContent = Math.round(settings.warpStrength * 100) + '%';
 
-    applyLens();
+    /* 开启液态玻璃时，立即重新获取面板矩形位置 */
+    schedulePanelRectsUpdate();
   } else {
     document.body.classList.remove('liquid-glass');
-    document.body.classList.remove('no-lens');
     glassAlphaRow.style.display = 'none';
-    lensRow.style.display = 'none';
-    lensYRow.style.display = 'none';
+    edgeWarpRow.style.display = 'none';
+    warpStrengthRow.style.display = 'none';
   }
-}
-
-function applyLens() {
-  if (!settings.glass || !settings.lens) {
-    document.body.classList.add('no-lens');
-  } else {
-    document.body.classList.remove('no-lens');
-  }
-  lensEl.style.top = settings.lensY + '%';
-  lensYHint.textContent = '屏幕 ' + settings.lensY + '%';
 }
 
 function updateGlassAlpha(val) {
@@ -733,8 +881,8 @@ function updateGlassAlpha(val) {
 /* ==========================================================
    模态面板
 ========================================================== */
-function openModal(el)  { el.classList.add('show'); }
-function closeModal(el) { el.classList.remove('show'); }
+function openModal(el)  { el.classList.add('show'); schedulePanelRectsUpdate(); }
+function closeModal(el) { el.classList.remove('show'); schedulePanelRectsUpdate(); }
 function closeAllModals() {
   closeModal(aboutPanel);
   closeModal(settingsPanel);
@@ -815,6 +963,8 @@ function updateDistUI() {
    设置绑定
 ========================================================== */
 setGlass.checked       = settings.glass;
+setEdgeWarp.checked    = settings.edgeWarp;
+setWarpStrength.value  = String(Math.round(settings.warpStrength * 100));
 setParticles.checked   = settings.particles;
 setMagnify.checked     = settings.magnify;
 setMark.checked        = settings.mark;
@@ -826,10 +976,9 @@ setDensity.value       = String(settings.density);
 setAnchor.value        = settings.anchor;
 setRadius.value        = String(settings.radiusPct);
 setGlassAlpha.value    = String(Math.round(settings.glassAlpha * 100));
-setLens.checked        = settings.lens;
-setLensY.value         = String(settings.lensY);
 
 radiusHint.textContent = '屏幕短边的 ' + settings.radiusPct + '%';
+warpStrengthHint.textContent = Math.round(settings.warpStrength * 100) + '%';
 updateCustomAnchorHint();
 updateDistUI();
 applyGlass();
@@ -844,14 +993,15 @@ setGlassAlpha.addEventListener('input', () => {
   updateGlassAlpha(val);
 });
 
-setLens.addEventListener('change', () => {
-  settings.lens = setLens.checked;
-  applyLens();
+setEdgeWarp.addEventListener('change', () => {
+  settings.edgeWarp = setEdgeWarp.checked;
+  /* 开关切换时刷新面板矩形 */
+  schedulePanelRectsUpdate();
 });
 
-setLensY.addEventListener('input', () => {
-  settings.lensY = parseInt(setLensY.value, 10) || 55;
-  applyLens();
+setWarpStrength.addEventListener('input', () => {
+  settings.warpStrength = parseInt(setWarpStrength.value, 10) / 100;
+  warpStrengthHint.textContent = Math.round(settings.warpStrength * 100) + '%';
 });
 
 setParticles.addEventListener('change', () => {
@@ -1030,6 +1180,7 @@ async function connect() {
     btnConn.disabled = false;
     srcTag.textContent = 'LIVE';
     setStatus('已连接 · ' + (device.name || '心率设备') + ' · 实时接收中', 'ok');
+    schedulePanelRectsUpdate();
   } catch (err) {
     btnConn.disabled = false;
     usingReal = false;
@@ -1047,6 +1198,7 @@ function onDisconnected() {
   btnConn.dataset.on = '0';
   srcTag.textContent = 'SIM';
   setStatus('设备已断开 · 已切回模拟模式');
+  schedulePanelRectsUpdate();
 }
 
 btnConn.addEventListener('click', () => {
@@ -1085,6 +1237,10 @@ function init() {
   resize();
   nextSampleTime = 0;
   simTime = 0;
+
+  /* 延迟一下再获取面板位置，等首帧渲染完成后布局才稳定 */
+  setTimeout(schedulePanelRectsUpdate, 200);
+
   requestAnimationFrame(loop);
 }
 
