@@ -2,9 +2,7 @@
    根变量
 ========================================================== */
 :root {
-  /* 液态玻璃背景不透明度，由 JS 动态修改（0 ~ 1） */
   --glass-alpha: 0.30;
-  /* 液态玻璃背景基础色（深色） */
   --glass-color: 20, 22, 34;
 }
 
@@ -16,87 +14,10 @@ html,body{
 }
 #c{position:fixed;inset:0;display:block;z-index:1}
 
-/* 全局暗角：减弱底部区域，让粒子可见 */
 body::after{
   content:'';position:fixed;inset:0;pointer-events:none;z-index:2;
   background:radial-gradient(ellipse 100% 100% at 50% 50%,
     transparent 45%, rgba(0,0,0,.25) 78%, rgba(0,0,0,.55) 100%);
-}
-
-/* ================= 彩色光球层 ================= */
-#orbs{
-  position:fixed;inset:0;
-  z-index:3;
-  pointer-events:none;
-  opacity:0;
-  transition:opacity .8s ease;
-  overflow:hidden;
-}
-body.liquid-glass #orbs{opacity:1}
-body.liquid-glass.no-orbs #orbs{opacity:0}
-
-.orb{
-  position:absolute;
-  border-radius:50%;
-  filter:blur(80px);
-  mix-blend-mode:screen;
-  will-change:transform;
-}
-.orb1{
-  width:42vw;height:42vw;max-width:560px;max-height:560px;
-  left:-8%;top:8%;
-  background:radial-gradient(circle at 35% 35%, #ff4d7d 0%, #7a0030 70%);
-  opacity:.55;
-  animation:orbFloat1 22s ease-in-out infinite alternate;
-}
-.orb2{
-  width:38vw;height:38vw;max-width:520px;max-height:520px;
-  right:-6%;top:14%;
-  background:radial-gradient(circle at 60% 40%, #4dc8ff 0%, #003a6e 70%);
-  opacity:.5;
-  animation:orbFloat2 26s ease-in-out infinite alternate;
-}
-.orb3{
-  width:50vw;height:50vw;max-width:640px;max-height:640px;
-  left:18%;bottom:-18%;
-  background:radial-gradient(circle at 40% 60%, #a06bff 0%, #2a005e 70%);
-  opacity:.48;
-  animation:orbFloat3 30s ease-in-out infinite alternate;
-}
-.orb4{
-  width:32vw;height:32vw;max-width:440px;max-height:440px;
-  right:16%;bottom:-6%;
-  background:radial-gradient(circle at 55% 45%, #ffb84d 0%, #5e3400 70%);
-  opacity:.42;
-  animation:orbFloat4 24s ease-in-out infinite alternate;
-}
-.orb5{
-  width:28vw;height:28vw;max-width:380px;max-height:380px;
-  left:42%;top:34%;
-  background:radial-gradient(circle at 50% 50%, #55ffc8 0%, #004d33 70%);
-  opacity:.35;
-  animation:orbFloat5 28s ease-in-out infinite alternate;
-}
-
-@keyframes orbFloat1{
-  0%  {transform:translate(0,0) scale(1)}
-  100%{transform:translate(6vw,4vh) scale(1.15)}
-}
-@keyframes orbFloat2{
-  0%  {transform:translate(0,0) scale(1)}
-  100%{transform:translate(-5vw,6vh) scale(1.1)}
-}
-@keyframes orbFloat3{
-  0%  {transform:translate(0,0) scale(1)}
-  100%{transform:translate(-7vw,-5vh) scale(1.18)}
-}
-@keyframes orbFloat4{
-  0%  {transform:translate(0,0) scale(1)}
-  100%{transform:translate(4vw,-6vh) scale(1.12)}
-}
-@keyframes orbFloat5{
-  0%  {transform:translate(0,0) scale(1)}
-  100%{transform:translate(-4vw,5vh) scale(1.2)}
 }
 
 /* ================= 顶部 HUD ================= */
@@ -121,9 +42,7 @@ body.liquid-glass.no-orbs #orbs{opacity:0}
 }
 #bpmSub{
   margin-top:9px;
-  display:flex;
-  align-items:center;
-  gap:12px;
+  display:flex;align-items:center;gap:12px;
   font-family:ui-monospace,"SF Mono",Menlo,monospace;
   font-size:10px;letter-spacing:.26em;
   color:#4a4a4a;text-transform:uppercase;
@@ -133,29 +52,16 @@ body.liquid-glass.no-orbs #orbs{opacity:0}
 /* ================= 信号强度 ================= */
 #sigStrengthRow{
   margin-top:10px;
-  display:flex;
-  align-items:center;
-  gap:9px;
+  display:flex;align-items:center;gap:9px;
   font-family:ui-monospace,"SF Mono",Menlo,monospace;
   transition:opacity .25s, max-height .25s, margin .25s;
 }
 #sigStrengthRow.hide{
-  opacity:0;
-  max-height:0;
-  margin-top:0;
-  overflow:hidden;
-  pointer-events:none;
+  opacity:0;max-height:0;margin-top:0;overflow:hidden;pointer-events:none;
 }
-.sigBars{
-  display:flex;
-  align-items:flex-end;
-  gap:3px;
-  height:15px;
-}
+.sigBars{display:flex;align-items:flex-end;gap:3px;height:15px}
 .sigBars i{
-  display:block;
-  width:3px;
-  border-radius:1px;
+  display:block;width:3px;border-radius:1px;
   background:rgba(255,255,255,.12);
   transition:background .22s, box-shadow .22s;
 }
@@ -163,61 +69,34 @@ body.liquid-glass.no-orbs #orbs{opacity:0}
 .sigBars .b2{height:7px}
 .sigBars .b3{height:11px}
 .sigBars .b4{height:15px}
-.sigBars i.on{
-  background:#fff;
-  box-shadow:0 0 6px rgba(255,255,255,.75);
-}
+.sigBars i.on{background:#fff;box-shadow:0 0 6px rgba(255,255,255,.75)}
 #sigPct{
-  font-size:10.5px;
-  color:#c8c8c8;
-  font-weight:500;
-  letter-spacing:.06em;
-  font-variant-numeric:tabular-nums;
-  min-width:30px;
+  font-size:10.5px;color:#c8c8c8;font-weight:500;
+  letter-spacing:.06em;font-variant-numeric:tabular-nums;min-width:30px;
 }
-.sigLabel{
-  font-size:9px;
-  letter-spacing:.26em;
-  color:#4a4a4a;
-}
+.sigLabel{font-size:9px;letter-spacing:.26em;color:#4a4a4a}
 
 /* ================= 信号指示灯 ================= */
 .signalIdle{
-  position:relative;
-  display:inline-flex;
-  align-items:center;
-  justify-content:center;
-  width:14px;height:14px;
-  flex:0 0 auto;
+  position:relative;display:inline-flex;
+  align-items:center;justify-content:center;
+  width:14px;height:14px;flex:0 0 auto;
 }
 .sigDot{
-  position:absolute;
-  left:50%;top:50%;
-  width:5px;height:5px;
-  margin-left:-2.5px;margin-top:-2.5px;
-  border-radius:50%;
-  background:#fff;
-  opacity:.18;
+  position:absolute;left:50%;top:50%;
+  width:5px;height:5px;margin-left:-2.5px;margin-top:-2.5px;
+  border-radius:50%;background:#fff;opacity:.18;
   transition:opacity .12s ease;
 }
 .sigRing{
-  position:absolute;
-  left:50%;top:50%;
-  width:14px;height:14px;
-  margin-left:-7px;margin-top:-7px;
+  position:absolute;left:50%;top:50%;
+  width:14px;height:14px;margin-left:-7px;margin-top:-7px;
   border-radius:50%;
   border:1px solid rgba(255,255,255,.9);
-  opacity:0;
-  transform:scale(.2);
-  pointer-events:none;
+  opacity:0;transform:scale(.2);pointer-events:none;
 }
-.sigRing2{
-  border-color:rgba(255,255,255,.55);
-}
-
-.signalIdle.beat .sigDot{
-  opacity:1;
-}
+.sigRing2{border-color:rgba(255,255,255,.55)}
+.signalIdle.beat .sigDot{opacity:1}
 .signalIdle.beat .sigRing{
   animation:sigRing 700ms cubic-bezier(.22,1,.36,1) forwards;
 }
@@ -225,71 +104,48 @@ body.liquid-glass.no-orbs #orbs{opacity:0}
   animation:sigRing 900ms cubic-bezier(.22,1,.36,1) 60ms forwards;
 }
 @keyframes sigRing{
-  0%{
-    opacity:.95;
-    transform:scale(.25);
-    border-width:2px;
-  }
-  60%{
-    opacity:.45;
-  }
-  100%{
-    opacity:0;
-    transform:scale(3.4);
-    border-width:.5px;
-  }
+  0%{opacity:.95;transform:scale(.25);border-width:2px}
+  60%{opacity:.45}
+  100%{opacity:0;transform:scale(3.4);border-width:.5px}
 }
 
 /* ================= 拾取位置提示 ================= */
 .pickHint{
-  position:fixed;
-  left:50%;top:calc(50% + 130px);
-  transform:translate(-50%, 0);
-  z-index:15;
+  position:fixed;left:50%;top:calc(50% + 130px);
+  transform:translate(-50%,0);z-index:15;
   padding:12px 22px;
   background:rgba(255,255,255,.1);
   border:1px solid rgba(255,255,255,.35);
   border-radius:100px;
-  color:#fff;
-  font-size:13px;
-  letter-spacing:.06em;
+  color:#fff;font-size:13px;letter-spacing:.06em;
   text-align:center;
   backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px);
   box-shadow:0 12px 40px rgba(0,0,0,.6);
   opacity:0;pointer-events:none;
   transition:opacity .28s ease, transform .28s ease;
 }
-.pickHint.show{
-  opacity:1;
-  transform:translate(-50%, -8px);
-}
+.pickHint.show{opacity:1;transform:translate(-50%,-8px)}
 .pickHintSub{
-  display:block;
-  margin-top:5px;
-  font-size:10px;
-  letter-spacing:.16em;
-  color:rgba(255,255,255,.5);
+  display:block;margin-top:5px;font-size:10px;
+  letter-spacing:.16em;color:rgba(255,255,255,.5);
 }
 body.picking canvas{cursor:crosshair}
 
 /* ================= 顶部按钮 ================= */
 #topBar{
   position:fixed;right:clamp(16px,3.2vw,40px);top:clamp(14px,2.6vh,32px);
-  z-index:6;
-  display:flex;gap:8px;
+  z-index:6;display:flex;gap:8px;
 }
 .topBtn{
   position:relative;
-  padding:9px 18px;
-  border-radius:100px;
+  padding:9px 18px;border-radius:100px;
   border:1px solid rgba(255,255,255,.22);
   background:rgba(255,255,255,.04);
   color:#d8d8d8;
   font-size:12px;letter-spacing:.16em;font-weight:500;
   cursor:pointer;transition:.22s;
   backdrop-filter:blur(10px);-webkit-backdrop-filter:blur(10px);
-  font-family:inherit;
-  overflow:hidden;
+  font-family:inherit;overflow:hidden;
 }
 .topBtn:hover{background:rgba(255,255,255,.12);border-color:rgba(255,255,255,.45);color:#fff}
 .topBtn:active{transform:scale(.96)}
@@ -331,14 +187,11 @@ body.picking canvas{cursor:crosshair}
   border:1px solid rgba(255,255,255,.16);
   background:transparent;color:#999;
   font-size:15px;line-height:1;cursor:pointer;
-  transition:.2s;font-family:inherit;
-  z-index:3;
+  transition:.2s;font-family:inherit;z-index:3;
 }
 .modalClose:hover{background:rgba(255,255,255,.1);color:#fff;border-color:rgba(255,255,255,.4)}
 
-.modalTitle{
-  font-size:23px;font-weight:600;letter-spacing:.01em;color:#fff;
-}
+.modalTitle{font-size:23px;font-weight:600;letter-spacing:.01em;color:#fff}
 .modalSub{
   margin-top:7px;font-size:11px;letter-spacing:.22em;
   color:#555;text-transform:uppercase;
@@ -351,9 +204,7 @@ body.picking canvas{cursor:crosshair}
   color:#7a7a7a;text-transform:uppercase;font-weight:600;
   font-family:ui-monospace,"SF Mono",Menlo,monospace;
 }
-.modalSection p{
-  margin:0;font-size:13.5px;line-height:1.8;color:#a4a4a4;
-}
+.modalSection p{margin:0;font-size:13.5px;line-height:1.8;color:#a4a4a4}
 .modalSection p.note{
   font-size:12px;color:#6e6e6e;margin-bottom:16px;line-height:1.7;
 }
@@ -393,114 +244,72 @@ body.picking canvas{cursor:crosshair}
 }
 .devGroup.hw{border-color:rgba(255,255,255,.26);background:rgba(255,255,255,.045)}
 
-/* 胶囊链接（邮箱 / QQ / GitHub） */
+/* 胶囊链接 */
 .pillLink{
-  display:inline-flex;
-  align-items:center;
-  gap:9px;
+  display:inline-flex;align-items:center;gap:9px;
   color:#e8e8e8;
   font-family:ui-monospace,"SF Mono",Menlo,monospace;
-  font-size:13px;
-  letter-spacing:.03em;
+  font-size:13px;letter-spacing:.03em;
   text-decoration:none;
   padding:7px 15px;
   border:1px solid rgba(255,255,255,.16);
   border-radius:9px;
   background:rgba(255,255,255,.03);
-  transition:.2s;
-  cursor:pointer;
-  word-break:break-all;
+  transition:.2s;cursor:pointer;word-break:break-all;
 }
 .pillLink:hover{
-  color:#fff;
-  border-color:rgba(255,255,255,.45);
+  color:#fff;border-color:rgba(255,255,255,.45);
   background:rgba(255,255,255,.09);
 }
 .mailLink::before{content:'✉';opacity:.65}
 .qqLink::before{content:'💬';opacity:.75;font-size:12px}
 .ghLink::before{content:'⌥';opacity:.75;font-size:13px}
-
 .qqLink.copied{
   border-color:rgba(255,255,255,.6);
-  background:rgba(255,255,255,.14);
-  color:#fff;
+  background:rgba(255,255,255,.14);color:#fff;
 }
 
 /* ================= 设置项 ================= */
 .settingRow{
-  display:flex;
-  align-items:center;
-  justify-content:space-between;
-  gap:14px;
-  padding:11px 0;
+  display:flex;align-items:center;justify-content:space-between;
+  gap:14px;padding:11px 0;
   border-bottom:1px solid rgba(255,255,255,.06);
   transition:opacity .24s ease;
 }
 .settingRow:last-child{border-bottom:none}
-.settingRow.dimmed{
-  opacity:.28;
-  pointer-events:none;
-  user-select:none;
-}
+.settingRow.dimmed{opacity:.28;pointer-events:none;user-select:none}
 .settingLabel{display:flex;flex-direction:column;gap:3px;min-width:0}
 .settingName{font-size:13px;color:#e0e0e0;letter-spacing:.02em}
 .settingHint{font-size:11px;color:#5d5d5d;letter-spacing:.02em}
 
 /* 开关 */
-.switch{
-  position:relative;
-  display:inline-block;
-  width:42px;height:23px;
-  flex:0 0 auto;
-}
+.switch{position:relative;display:inline-block;width:42px;height:23px;flex:0 0 auto}
 .switch input{opacity:0;width:0;height:0;position:absolute}
 .switch .slider{
   position:absolute;inset:0;
   background:rgba(255,255,255,.13);
   border:1px solid rgba(255,255,255,.14);
-  border-radius:23px;
-  transition:.24s;
-  cursor:pointer;
+  border-radius:23px;transition:.24s;cursor:pointer;
 }
 .switch .slider::before{
-  content:'';
-  position:absolute;
-  width:15px;height:15px;
-  left:3px;top:50%;
+  content:'';position:absolute;
+  width:15px;height:15px;left:3px;top:50%;
   transform:translateY(-50%);
-  background:#8a8a8a;
-  border-radius:50%;
-  transition:.24s;
+  background:#8a8a8a;border-radius:50%;transition:.24s;
 }
-.switch input:checked + .slider{
-  background:#fff;
-  border-color:#fff;
-}
+.switch input:checked + .slider{background:#fff;border-color:#fff}
 .switch input:checked + .slider::before{
-  background:#000;
-  transform:translate(19px,-50%);
+  background:#000;transform:translate(19px,-50%);
 }
 
 /* 颜色选择 */
-.colorRow{
-  display:flex;
-  gap:8px;
-  flex-wrap:wrap;
-  flex:0 0 auto;
-}
+.colorRow{display:flex;gap:8px;flex-wrap:wrap;flex:0 0 auto}
 .colorDot{
-  width:24px;height:24px;
-  border-radius:50%;
+  width:24px;height:24px;border-radius:50%;
   border:2px solid rgba(255,255,255,.18);
-  padding:0;
-  cursor:pointer;
-  transition:.18s;
-  flex:0 0 auto;
+  padding:0;cursor:pointer;transition:.18s;flex:0 0 auto;
 }
-.colorDot:hover{
-  transform:scale(1.12);
-  border-color:rgba(255,255,255,.55);
-}
+.colorDot:hover{transform:scale(1.12);border-color:rgba(255,255,255,.55)}
 .colorDot.active{
   border-color:#fff;
   box-shadow:0 0 0 2px rgba(255,255,255,.28);
@@ -514,11 +323,8 @@ body.picking canvas{cursor:crosshair}
   color:#e8e8e8;
   padding:7px 28px 7px 12px;
   border-radius:9px;
-  font-size:12.5px;
-  font-family:inherit;
-  outline:none;
-  cursor:pointer;
-  flex:0 0 auto;
+  font-size:12.5px;font-family:inherit;
+  outline:none;cursor:pointer;flex:0 0 auto;
   background-image:url("data:image/svg+xml;charset=UTF-8,%3csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 8'%3e%3cpath fill='%23aaaaaa' d='M6 8L0 0h12z'/%3e%3c/svg%3e");
   background-repeat:no-repeat;
   background-position:right 10px center;
@@ -531,12 +337,9 @@ body.picking canvas{cursor:crosshair}
 /* 迷你滑块 */
 .miniRange{
   -webkit-appearance:none;appearance:none;
-  width:110px;
-  height:2px;
-  border-radius:2px;
+  width:110px;height:2px;border-radius:2px;
   background:linear-gradient(90deg,#3a3a3a,#fff);
-  outline:none;cursor:pointer;
-  flex:0 0 auto;
+  outline:none;cursor:pointer;flex:0 0 auto;
 }
 .miniRange::-webkit-slider-thumb{
   -webkit-appearance:none;width:12px;height:12px;border-radius:50%;
@@ -549,37 +352,25 @@ body.picking canvas{cursor:crosshair}
 }
 
 /* 小按钮 / 全宽按钮 */
-.smallBtn,
-.fullBtn{
-  font-family:inherit;
-  cursor:pointer;
-  transition:.2s;
+.smallBtn,.fullBtn{
+  font-family:inherit;cursor:pointer;transition:.2s;
   border-radius:9px;
   border:1px solid rgba(255,255,255,.2);
   background:rgba(255,255,255,.04);
   color:#d8d8d8;
 }
-.smallBtn{
-  font-size:11.5px;
-  padding:7px 13px;
-  letter-spacing:.03em;
-}
+.smallBtn{font-size:11.5px;padding:7px 13px;letter-spacing:.03em}
 .smallBtn:hover{
   background:rgba(255,255,255,.12);
-  border-color:rgba(255,255,255,.45);
-  color:#fff;
+  border-color:rgba(255,255,255,.45);color:#fff;
 }
 .fullBtn{
-  width:100%;
-  font-size:13px;
-  padding:10px 14px;
-  letter-spacing:.05em;
-  font-weight:600;
+  width:100%;font-size:13px;padding:10px 14px;
+  letter-spacing:.05em;font-weight:600;
 }
 .fullBtn:hover{
   background:rgba(255,255,255,.14);
-  border-color:rgba(255,255,255,.5);
-  color:#fff;
+  border-color:rgba(255,255,255,.5);color:#fff;
 }
 .fullBtn:active,.smallBtn:active{transform:scale(.985)}
 
@@ -608,8 +399,7 @@ body.picking canvas{cursor:crosshair}
 #btnConnect:hover{background:rgba(255,255,255,.14);border-color:rgba(255,255,255,.5);color:#fff}
 #btnConnect:active{transform:scale(.985)}
 #btnConnect[data-on="1"]{
-  background:rgba(255,255,255,.9);
-  border-color:#fff;color:#000;
+  background:rgba(255,255,255,.9);border-color:#fff;color:#000;
 }
 #btnConnect[data-on="1"]:hover{background:#fff}
 #btnConnect:disabled{opacity:.3;cursor:not-allowed}
@@ -645,14 +435,120 @@ input[type=range]:disabled{opacity:.24;cursor:not-allowed}
 
 
 /* ================================================================
-   ================= 液态玻璃（Liquid Glass） ======================
-   默认关闭，通过 body.liquid-glass 类启用
-   — 使用 CSS 变量 --glass-alpha 控制不透明度
-   — ::before 做边缘色散（conic-gradient + mask）
-   — ::after 做透镜内部高光
+   ================= 液态玻璃透镜带（Lens Band） ==================
+   横贯屏幕的液态玻璃透镜。带内内容被模糊 + 提亮，上下边缘用更强
+   模糊 + 高光 + 色散，模拟内容被推挤变形的视觉效果。
 ================================================================ */
 
-/* ---------- 通用玻璃基底（共享属性） ---------- */
+#lens{
+  position:fixed;
+  left:0;right:0;
+  top:55%;
+  height:156px;
+  transform:translateY(-50%);
+  pointer-events:none;
+  z-index:3;
+  opacity:0;
+  transition:opacity .8s ease;
+  --lens-edge:26px;
+}
+
+body.liquid-glass #lens{opacity:1}
+body.liquid-glass.no-lens #lens{opacity:0}
+
+/* 两端淡出，避免透镜带边缘生硬 */
+.lens-top,
+.lens-core,
+.lens-bottom{
+  -webkit-mask-image:linear-gradient(90deg,
+    transparent 0%, #000 6%, #000 94%, transparent 100%);
+          mask-image:linear-gradient(90deg,
+    transparent 0%, #000 6%, #000 94%, transparent 100%);
+}
+
+/* ---- 中部：基础透镜 ---- */
+.lens-core{
+  position:absolute;
+  left:0;right:0;
+  top:var(--lens-edge);
+  bottom:var(--lens-edge);
+  backdrop-filter:blur(2.8px) saturate(1.55) brightness(1.06);
+  -webkit-backdrop-filter:blur(2.8px) saturate(1.55) brightness(1.06);
+  background:linear-gradient(180deg,
+    rgba(255,255,255,.05) 0%,
+    rgba(255,255,255,0) 45%,
+    rgba(255,255,255,.05) 100%);
+}
+.lens-core::after{
+  content:'';
+  position:absolute;inset:0;
+  background:
+    radial-gradient(ellipse 100% 50% at 50% 0%,
+      rgba(255,255,255,.14) 0%, transparent 70%),
+    radial-gradient(ellipse 100% 50% at 50% 100%,
+      rgba(255,255,255,.10) 0%, transparent 70%),
+    radial-gradient(ellipse 22% 70% at 16% 50%,
+      rgba(255,255,255,.08) 0%, transparent 70%);
+  mix-blend-mode:screen;
+  pointer-events:none;
+}
+
+/* ---- 顶部边缘：更强模糊 + 高光 + 粉色散 ---- */
+.lens-top{
+  position:absolute;
+  left:0;right:0;
+  top:0;
+  height:var(--lens-edge);
+  backdrop-filter:blur(6px) saturate(1.45) brightness(1.16);
+  -webkit-backdrop-filter:blur(6px) saturate(1.45) brightness(1.16);
+  background:linear-gradient(180deg,
+    rgba(255,255,255,.46) 0%,
+    rgba(255,255,255,.12) 52%,
+    rgba(255,255,255,0) 100%);
+  border-top:1px solid rgba(255,255,255,.7);
+}
+.lens-top::after{
+  content:'';
+  position:absolute;inset:0;
+  background:linear-gradient(180deg,
+    rgba(255,80,140,.48) 0%,
+    rgba(255,140,80,.14) 45%,
+    transparent 100%);
+  mix-blend-mode:screen;
+  pointer-events:none;
+}
+
+/* ---- 底部边缘：更强模糊 + 高光 + 蓝色散 ---- */
+.lens-bottom{
+  position:absolute;
+  left:0;right:0;
+  bottom:0;
+  height:var(--lens-edge);
+  backdrop-filter:blur(5px) saturate(1.45) brightness(1.11);
+  -webkit-backdrop-filter:blur(5px) saturate(1.45) brightness(1.11);
+  background:linear-gradient(0deg,
+    rgba(255,255,255,.42) 0%,
+    rgba(255,255,255,.10) 52%,
+    rgba(255,255,255,0) 100%);
+  border-bottom:1px solid rgba(255,255,255,.68);
+}
+.lens-bottom::after{
+  content:'';
+  position:absolute;inset:0;
+  background:linear-gradient(0deg,
+    rgba(80,150,255,.48) 0%,
+    rgba(80,200,255,.14) 45%,
+    transparent 100%);
+  mix-blend-mode:screen;
+  pointer-events:none;
+}
+
+
+/* ================================================================
+   ================= 液态玻璃 UI ==================================
+   面板、按钮、弹窗的玻璃质感
+================================================================ */
+
 body.liquid-glass .topBtn,
 body.liquid-glass #panel,
 body.liquid-glass .modalCard,
@@ -684,7 +580,6 @@ body.liquid-glass .selectBox{
   transition:background .3s, box-shadow .3s, border-color .3s;
 }
 
-/* ---------- 边缘色散环 ---------- */
 body.liquid-glass .topBtn::before,
 body.liquid-glass #panel::before,
 body.liquid-glass .modalCard::before,
@@ -695,8 +590,7 @@ body.liquid-glass .fullBtn::before,
 body.liquid-glass .pillLink::before,
 body.liquid-glass .selectBox::before{
   content:'';
-  position:absolute;
-  inset:0;
+  position:absolute;inset:0;
   border-radius:inherit;
   padding:1.4px;
   background:conic-gradient(
@@ -719,7 +613,6 @@ body.liquid-glass .selectBox::before{
   mix-blend-mode:screen;
 }
 
-/* ---------- 透镜内部高光 ---------- */
 body.liquid-glass .topBtn::after,
 body.liquid-glass #panel::after,
 body.liquid-glass .modalCard::after,
@@ -730,8 +623,7 @@ body.liquid-glass .fullBtn::after,
 body.liquid-glass .pillLink::after,
 body.liquid-glass .selectBox::after{
   content:'';
-  position:absolute;
-  inset:0;
+  position:absolute;inset:0;
   border-radius:inherit;
   background:
     radial-gradient(ellipse 105% 55% at 50% -10%,
@@ -749,7 +641,6 @@ body.liquid-glass .selectBox::after{
   mix-blend-mode:screen;
 }
 
-/* 内容置于玻璃效果之上 */
 body.liquid-glass .topBtn,
 body.liquid-glass #panel > *,
 body.liquid-glass .modalCard > *,
@@ -762,7 +653,6 @@ body.liquid-glass .selectBox{
   z-index:3;
 }
 
-/* ---------- 悬停 / 激活状态强化 ---------- */
 body.liquid-glass .topBtn:hover,
 body.liquid-glass .smallBtn:hover,
 body.liquid-glass .fullBtn:hover,
@@ -789,8 +679,7 @@ body.liquid-glass #btnConnect:hover{
 
 body.liquid-glass #btnConnect[data-on="1"]{
   background:rgba(255,255,255,.92);
-  border-color:#fff;
-  color:#000;
+  border-color:#fff;color:#000;
   box-shadow:
     0 8px 28px rgba(255,255,255,.28),
     inset 0 1px 0 rgba(255,255,255,.95),
@@ -807,26 +696,22 @@ body.liquid-glass .modalClose:hover{
   color:#fff;
 }
 
-/* ---------- 底部面板专属：更小模糊以透出粒子 ---------- */
 body.liquid-glass #panel{
   backdrop-filter:blur(14px) saturate(1.85) brightness(1.08);
   -webkit-backdrop-filter:blur(14px) saturate(1.85) brightness(1.08);
 }
 
-/* ---------- 模态遮罩：极淡，粒子可见 ---------- */
 body.liquid-glass .modal{
   background:rgba(0,0,0,.08);
   backdrop-filter:blur(1px);
   -webkit-backdrop-filter:blur(1px);
 }
 
-/* ---------- 模态卡片专属调整 ---------- */
 body.liquid-glass .modalCard{
   backdrop-filter:blur(28px) saturate(1.85) brightness(1.08);
   -webkit-backdrop-filter:blur(28px) saturate(1.85) brightness(1.08);
 }
 
-/* ---------- 开关：轻量玻璃化 ---------- */
 body.liquid-glass .switch .slider{
   background:rgba(255,255,255,.14);
   border:1px solid rgba(255,255,255,.24);
@@ -843,7 +728,6 @@ body.liquid-glass .switch input:checked + .slider{
     inset 0 -1px 0 rgba(0,0,0,.12);
 }
 
-/* ---------- 颜色圆点：轻量玻璃化 ---------- */
 body.liquid-glass .colorDot{
   border:2px solid rgba(255,255,255,.32);
   box-shadow:
@@ -858,7 +742,6 @@ body.liquid-glass .colorDot.active{
     inset 0 1px 0 rgba(255,255,255,.55);
 }
 
-/* ---------- 设备分组：轻微玻璃化 ---------- */
 body.liquid-glass .devGroup{
   background:rgba(255,255,255,.05);
   border:1px solid rgba(255,255,255,.16);
@@ -873,19 +756,8 @@ body.liquid-glass .devGroup:hover{
   border-color:rgba(255,255,255,.3);
 }
 
-/* ---------- 文字色微调 ---------- */
-body.liquid-glass .settingRow{
-  border-bottom-color:rgba(255,255,255,.10);
-}
-body.liquid-glass .modalSub{
-  color:#8390a4;
-}
-body.liquid-glass .modalSection h3{
-  color:#93a0b5;
-}
-body.liquid-glass .modalSection p{
-  color:#b8c0cf;
-}
-body.liquid-glass .devGroup li{
-  color:#a5adbb;
-}
+body.liquid-glass .settingRow{border-bottom-color:rgba(255,255,255,.10)}
+body.liquid-glass .modalSub{color:#8390a4}
+body.liquid-glass .modalSection h3{color:#93a0b5}
+body.liquid-glass .modalSection p{color:#b8c0cf}
+body.liquid-glass .devGroup li{color:#a5adbb}

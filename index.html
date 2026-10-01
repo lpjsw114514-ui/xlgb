@@ -10,13 +10,11 @@
 
 <canvas id="c"></canvas>
 
-<!-- 彩色光球层：让液态玻璃有色彩可折射 -->
-<div id="orbs" aria-hidden="true">
-  <span class="orb orb1"></span>
-  <span class="orb orb2"></span>
-  <span class="orb orb3"></span>
-  <span class="orb orb4"></span>
-  <span class="orb orb5"></span>
+<!-- 液态玻璃透镜带 -->
+<div id="lens" aria-hidden="true">
+  <div class="lens-top"></div>
+  <div class="lens-core"></div>
+  <div class="lens-bottom"></div>
 </div>
 
 <div id="hud">
@@ -227,20 +225,28 @@
       <div class="settingRow" id="glassAlphaRow" style="display:none">
         <div class="settingLabel">
           <span class="settingName">透明度</span>
-          <span class="settingHint" id="glassAlphaHint">0% 最透明</span>
+          <span class="settingHint" id="glassAlphaHint">30%</span>
         </div>
         <input id="setGlassAlpha" class="miniRange" type="range" min="0" max="100" step="1" value="30">
       </div>
 
-      <div class="settingRow" id="glassOrbsRow" style="display:none">
+      <div class="settingRow" id="lensRow" style="display:none">
         <div class="settingLabel">
-          <span class="settingName">彩色光晕</span>
-          <span class="settingHint">背景色球，让玻璃折射有颜色</span>
+          <span class="settingName">透镜带</span>
+          <span class="settingHint">横贯屏幕的液态玻璃透镜</span>
         </div>
         <label class="switch">
-          <input type="checkbox" id="setGlassOrbs" checked>
+          <input type="checkbox" id="setLens" checked>
           <span class="slider"></span>
         </label>
+      </div>
+
+      <div class="settingRow" id="lensYRow" style="display:none">
+        <div class="settingLabel">
+          <span class="settingName">透镜带位置</span>
+          <span class="settingHint" id="lensYHint">屏幕 55%</span>
+        </div>
+        <input id="setLensY" class="miniRange" type="range" min="15" max="85" step="1" value="55">
       </div>
     </div>
 
@@ -429,9 +435,10 @@
     <div class="modalSection">
       <h3>外观</h3>
       <p>
-        <b>液态玻璃</b>：开启后，面板、按钮、弹窗切换为苹果风格的液态玻璃质感，带边缘色散、透镜高光和动态模糊。默认关闭。<br>
+        <b>液态玻璃</b>：开启后，面板、按钮、弹窗切换为苹果风格的液态玻璃质感，带边缘色散、透镜高光。默认关闭。<br>
         <b>透明度</b>：调节玻璃的不透明程度。0% 最透明，粒子完全透出；100% 最实，对比度最高。<br>
-        <b>彩色光晕</b>：在背景铺一层柔和的彩色光球。玻璃边缘的色散需要有色彩可折射，纯黑背景上色散不明显。
+        <b>透镜带</b>：在屏幕上横贯一条液态玻璃透镜。带内的 ECG 波形与粒子会被模糊、提亮，上下边缘叠加高光与色散，产生内容被推挤变形的视觉效果。<br>
+        <b>透镜带位置</b>：控制透镜带在屏幕上的垂直位置。
       </p>
     </div>
 
@@ -441,10 +448,10 @@
         <b>启用粒子</b>：控制心跳时是否迸发星空粒子。<br>
         <b>粒子强度</b>：控制每次心跳生成的粒子数量（标准 / 丰富 / 爆炸 / 狂野）。<br>
         <b>全屏分布</b>：开启后，粒子云以屏幕中心为圆心覆盖整个屏幕，此时分布位置、分布半径、自定义坐标将被禁用。<br>
-        <b>分布位置</b>：粒子云的中心锚点，可选跟随 R 峰 / 屏幕中心 / 顶部 / 底部 / 左侧 / 右侧 / 自定义位置。选自定义后会进入拾取模式，点击画布任意位置即可设定。<br>
-        <b>分布半径</b>：粒子云覆盖范围，从屏幕短边的 20% 到 100%。<br>
+        <b>分布位置</b>：粒子云的中心锚点。<br>
+        <b>分布半径</b>：粒子云覆盖范围。<br>
         <b>粒子颜色</b>：点击色块切换粒子颜色。<br>
-        <b>摆动方向</b>：控制粒子的初速度方向。自由扩散是四散；向上/下/左/右是定向；顺时针/逆时针带切向旋转。
+        <b>摆动方向</b>：控制粒子的初速度方向。
       </p>
     </div>
 
@@ -452,22 +459,15 @@
       <h3>心率曲线</h3>
       <p>
         <b>局部放大</b>：在屏幕右下角显示一个放大窗口，展示最近一个完整心搏的波形。<br>
-        <b>手动打点标记</b>：开启后，点击波形区域会在该位置添加一个运动节点标记（白色竖线 + 圆点）。标记会随波形一起滚动。
+        <b>手动打点标记</b>：开启后，点击波形区域会在该位置添加一个运动节点标记。
       </p>
     </div>
 
     <div class="modalSection">
       <h3>信号提示</h3>
       <p>
-        <b>心跳信号灯</b>：位于顶部 BPM 数字下方，是一个会扩散脉冲的圆环。每次心搏时，圆环向外扩散并淡出，用来直观确认信号正在被接收。<br>
-        <b>信号强度条</b>：显示蓝牙连接质量（0–100%），四格信号柱随着强度增加逐格点亮。真实连接时基于心率数据包到达的稳定性估算；模拟模式下显示为稳定值。
-      </p>
-    </div>
-
-    <div class="modalSection">
-      <h3>清除标记</h3>
-      <p>
-        在设置面板点「清除所有标记」，会移除当前所有打点标记。
+        <b>心跳信号灯</b>：顶部 BPM 数字下方，每次心搏时向外扩散脉冲圆环。<br>
+        <b>信号强度条</b>：显示蓝牙连接质量（0–100%），四格信号柱逐格点亮。
       </p>
     </div>
 
@@ -476,7 +476,7 @@
       <p>
         · 点击右上角「设置」/「关于」切换面板<br>
         · 点击面板外空白区域或按 <b>ESC</b> 关闭当前面板<br>
-        · 打开面板时，背景的 ECG 波形与粒子会继续运行，可以透过面板看到
+        · 打开面板时，背景的 ECG 波形与粒子继续运行，可透过面板看到
       </p>
     </div>
 
