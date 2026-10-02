@@ -10,7 +10,7 @@ html,body{
   user-select:none;
 }
 
-/* ============ Layer 1 + 2：全屏 WebGL canvas ============ */
+/* ============ Canvas ============ */
 #c{
   position:fixed;
   inset:0;
@@ -31,7 +31,7 @@ body::after{
     transparent 45%, rgba(0,0,0,.25) 78%, rgba(0,0,0,.55) 100%);
 }
 
-/* ============ Layer 3：DOM UI ============ */
+/* ============ UI 层 ============ */
 #ui{
   position:fixed;
   inset:0;
@@ -142,11 +142,13 @@ body::after{
   position:fixed;left:50%;top:calc(50% + 130px);
   transform:translate(-50%,0);z-index:15;
   padding:12px 22px;
-  background:rgba(255,255,255,.1);
-  border:1px solid rgba(255,255,255,.35);
+  background:rgba(30,30,36,.55);
+  border:1px solid rgba(255,255,255,.22);
   border-radius:100px;color:#fff;
   font-size:13px;letter-spacing:.06em;text-align:center;
-  box-shadow:0 12px 40px rgba(0,0,0,.6);
+  backdrop-filter:blur(20px) saturate(1.4);
+  -webkit-backdrop-filter:blur(20px) saturate(1.4);
+  box-shadow:0 12px 40px rgba(0,0,0,.5), inset 0 1px 0 rgba(255,255,255,.16);
   opacity:0;pointer-events:none;
   transition:opacity .28s ease, transform .28s ease;
 }
@@ -157,7 +159,7 @@ body::after{
 }
 body.picking #c{cursor:crosshair}
 
-/* ================= 顶部按钮 ================= */
+/* ================= 顶部按钮：磨砂玻璃 ================= */
 #topBar{
   position:fixed;
   right:clamp(16px,3.2vw,40px);
@@ -165,111 +167,104 @@ body.picking #c{cursor:crosshair}
   z-index:6;
   display:flex;gap:8px;
 }
-
-/* 默认外观 */
 .topBtn{
-  position:relative;
   padding:9px 18px;border-radius:100px;
-  border:1px solid rgba(255,255,255,.22);
-  background:rgba(255,255,255,.04);
-  color:#d8d8d8;
+  border:1px solid rgba(255,255,255,.18);
+  background:rgba(28,28,34,.5);
+  color:#e4e4e4;
   font-size:12px;letter-spacing:.16em;font-weight:500;
-  cursor:pointer;transition:background .22s, border-color .22s, color .22s;
+  cursor:pointer;
   font-family:inherit;
+  backdrop-filter:blur(22px) saturate(1.5);
+  -webkit-backdrop-filter:blur(22px) saturate(1.5);
+  box-shadow:
+    0 8px 24px rgba(0,0,0,.4),
+    inset 0 1px 0 rgba(255,255,255,.18),
+    inset 0 -1px 0 rgba(255,255,255,.04);
+  transition:background .22s, border-color .22s, color .22s;
 }
 .topBtn:hover{
-  background:rgba(255,255,255,.12);
-  border-color:rgba(255,255,255,.45);
+  background:rgba(50,50,58,.6);
+  border-color:rgba(255,255,255,.32);
   color:#fff;
 }
 .topBtn:active{transform:scale(.96)}
-
-/* 液态玻璃模式下：让背景完全透明，由 WebGL 层提供玻璃效果 */
-body.liquid-glass .topBtn{
-  background:transparent;
-  border-color:rgba(255,255,255,.32);
-  color:#f2f2f2;
-  text-shadow:0 1px 6px rgba(0,0,0,.7);
-}
-body.liquid-glass .topBtn:hover{
-  background:rgba(255,255,255,.06);
-  border-color:rgba(255,255,255,.55);
-  color:#fff;
-}
 
 /* ================= 模态面板 ================= */
 .modal{
   position:fixed;inset:0;z-index:20;
   display:flex;align-items:center;justify-content:center;
   padding:20px;
-  background:rgba(0,0,0,.4);
+  background:rgba(0,0,0,.35);
+  backdrop-filter:blur(3px);
+  -webkit-backdrop-filter:blur(3px);
   opacity:0;pointer-events:none;
   transition:opacity .3s ease;
 }
 .modal.show{opacity:1;pointer-events:auto}
 
+/* 磨砂玻璃面板 */
 .modalCard{
   position:relative;
   width:min(600px,100%);
   max-height:82vh;overflow-y:auto;
   padding:clamp(24px,4vw,38px);
-  background:rgba(10,10,10,.86);
+  background:rgba(24,24,30,.62);
   border:1px solid rgba(255,255,255,.14);
   border-radius:22px;
   transform:translateY(16px) scale(.98);
-  transition:transform .34s cubic-bezier(.22,1,.36,1), background .3s;
-  box-shadow:0 30px 90px rgba(0,0,0,.9);
+  transition:transform .34s cubic-bezier(.22,1,.36,1);
+  backdrop-filter:blur(32px) saturate(1.6);
+  -webkit-backdrop-filter:blur(32px) saturate(1.6);
+  box-shadow:
+    0 30px 80px rgba(0,0,0,.7),
+    inset 0 1px 0 rgba(255,255,255,.16),
+    inset 0 -1px 0 rgba(255,255,255,.03);
   overflow-x:hidden;
 }
 .modal.show .modalCard{transform:translateY(0) scale(1)}
 .modalCard::-webkit-scrollbar{width:5px}
 .modalCard::-webkit-scrollbar-thumb{background:rgba(255,255,255,.18);border-radius:4px}
 
-/* 液态玻璃模式下：面板背景半透明，让 WebGL 玻璃效果透出 */
-body.liquid-glass .modalCard{
-  background:rgba(10,10,10,.42);
-  border-color:rgba(255,255,255,.22);
-  backdrop-filter:none;
-  -webkit-backdrop-filter:none;
-  text-shadow:0 1px 4px rgba(0,0,0,.5);
-}
-
 .modalClose{
   position:absolute;right:16px;top:16px;
   width:34px;height:34px;border-radius:50%;
   border:1px solid rgba(255,255,255,.16);
-  background:transparent;color:#999;
+  background:rgba(255,255,255,.05);
+  color:#bbb;
   font-size:15px;line-height:1;cursor:pointer;
+  backdrop-filter:blur(10px);
+  -webkit-backdrop-filter:blur(10px);
   transition:.2s;font-family:inherit;z-index:3;
 }
-.modalClose:hover{background:rgba(255,255,255,.1);color:#fff;border-color:rgba(255,255,255,.4)}
+.modalClose:hover{background:rgba(255,255,255,.14);color:#fff;border-color:rgba(255,255,255,.4)}
 
 .modalTitle{font-size:23px;font-weight:600;letter-spacing:.01em;color:#fff}
 .modalSub{
   margin-top:7px;font-size:11px;letter-spacing:.22em;
-  color:#555;text-transform:uppercase;
+  color:#666;text-transform:uppercase;
   font-family:ui-monospace,"SF Mono",Menlo,monospace;
 }
 
 .modalSection{margin-top:28px}
 .modalSection h3{
   margin:0 0 11px;font-size:11px;letter-spacing:.24em;
-  color:#7a7a7a;text-transform:uppercase;font-weight:600;
+  color:#888;text-transform:uppercase;font-weight:600;
   font-family:ui-monospace,"SF Mono",Menlo,monospace;
 }
-.modalSection p{margin:0;font-size:13.5px;line-height:1.8;color:#a4a4a4}
-.modalSection p.note{font-size:12px;color:#6e6e6e;margin-bottom:16px;line-height:1.7}
-.modalSection p b{color:#e8e8e8;font-weight:600}
+.modalSection p{margin:0;font-size:13.5px;line-height:1.8;color:#b0b0b0}
+.modalSection p.note{font-size:12px;color:#7a7a7a;margin-bottom:16px;line-height:1.7}
+.modalSection p b{color:#efefef;font-weight:600}
 
 .devGrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(158px,1fr));gap:10px}
 .devGroup{
   padding:13px 15px 14px;
   border:1px solid rgba(255,255,255,.09);
   border-radius:12px;
-  background:rgba(255,255,255,.018);
+  background:rgba(255,255,255,.025);
   transition:.2s;
 }
-.devGroup:hover{background:rgba(255,255,255,.05);border-color:rgba(255,255,255,.2)}
+.devGroup:hover{background:rgba(255,255,255,.06);border-color:rgba(255,255,255,.2)}
 .devGroup h4{
   margin:0 0 8px;font-size:12px;font-weight:600;
   color:#efefef;letter-spacing:.04em;
@@ -282,11 +277,11 @@ body.liquid-glass .modalCard{
 }
 .devGroup ul{margin:0;padding:0;list-style:none}
 .devGroup li{
-  font-size:11.5px;line-height:1.85;color:#8e8e8e;
+  font-size:11.5px;line-height:1.85;color:#9a9a9a;
   padding-left:12px;position:relative;
 }
-.devGroup li::before{content:'·';position:absolute;left:2px;color:#4a4a4a}
-.devGroup.hw{border-color:rgba(255,255,255,.26);background:rgba(255,255,255,.045)}
+.devGroup li::before{content:'·';position:absolute;left:2px;color:#5a5a5a}
+.devGroup.hw{border-color:rgba(255,255,255,.22);background:rgba(255,255,255,.05)}
 
 .pillLink{
   display:inline-flex;align-items:center;gap:9px;
@@ -294,34 +289,38 @@ body.liquid-glass .modalCard{
   font-family:ui-monospace,"SF Mono",Menlo,monospace;
   font-size:13px;letter-spacing:.03em;text-decoration:none;
   padding:7px 15px;border:1px solid rgba(255,255,255,.16);
-  border-radius:9px;background:rgba(255,255,255,.03);
+  border-radius:9px;background:rgba(255,255,255,.05);
+  backdrop-filter:blur(10px);
+  -webkit-backdrop-filter:blur(10px);
+  box-shadow:inset 0 1px 0 rgba(255,255,255,.12);
   transition:.2s;cursor:pointer;word-break:break-all;
 }
-.pillLink:hover{color:#fff;border-color:rgba(255,255,255,.45);background:rgba(255,255,255,.09)}
+.pillLink:hover{color:#fff;border-color:rgba(255,255,255,.45);background:rgba(255,255,255,.12)}
 .mailLink::before{content:'✉';opacity:.65}
 .qqLink::before{content:'💬';opacity:.75;font-size:12px}
 .ghLink::before{content:'⌥';opacity:.75;font-size:13px}
-.qqLink.copied{border-color:rgba(255,255,255,.6);background:rgba(255,255,255,.14);color:#fff}
+.qqLink.copied{border-color:rgba(255,255,255,.6);background:rgba(255,255,255,.16);color:#fff}
 
 .settingRow{
   display:flex;align-items:center;justify-content:space-between;
   gap:14px;padding:11px 0;
-  border-bottom:1px solid rgba(255,255,255,.06);
+  border-bottom:1px solid rgba(255,255,255,.07);
   transition:opacity .24s ease;
 }
 .settingRow:last-child{border-bottom:none}
 .settingRow.dimmed{opacity:.28;pointer-events:none;user-select:none}
 .settingLabel{display:flex;flex-direction:column;gap:3px;min-width:0}
-.settingName{font-size:13px;color:#e0e0e0;letter-spacing:.02em}
-.settingHint{font-size:11px;color:#5d5d5d;letter-spacing:.02em}
+.settingName{font-size:13px;color:#e6e6e6;letter-spacing:.02em}
+.settingHint{font-size:11px;color:#6a6a6a;letter-spacing:.02em}
 
 .switch{position:relative;display:inline-block;width:42px;height:23px;flex:0 0 auto}
 .switch input{opacity:0;width:0;height:0;position:absolute}
 .switch .slider{
   position:absolute;inset:0;
-  background:rgba(255,255,255,.13);
-  border:1px solid rgba(255,255,255,.14);
+  background:rgba(255,255,255,.14);
+  border:1px solid rgba(255,255,255,.18);
   border-radius:23px;transition:.24s;cursor:pointer;
+  box-shadow:inset 0 1px 0 rgba(255,255,255,.1);
 }
 .switch .slider::before{
   content:'';position:absolute;
@@ -335,18 +334,21 @@ body.liquid-glass .modalCard{
 .colorRow{display:flex;gap:8px;flex-wrap:wrap;flex:0 0 auto}
 .colorDot{
   width:24px;height:24px;border-radius:50%;
-  border:2px solid rgba(255,255,255,.18);
+  border:2px solid rgba(255,255,255,.2);
   padding:0;cursor:pointer;transition:.18s;flex:0 0 auto;
+  box-shadow:0 2px 6px rgba(0,0,0,.3);
 }
 .colorDot:hover{transform:scale(1.12);border-color:rgba(255,255,255,.55)}
-.colorDot.active{border-color:#fff;box-shadow:0 0 0 2px rgba(255,255,255,.28)}
+.colorDot.active{border-color:#fff;box-shadow:0 0 0 2px rgba(255,255,255,.28),0 0 12px rgba(255,255,255,.3)}
 
 .selectBox{
   appearance:none;-webkit-appearance:none;
-  background:rgba(255,255,255,.06);
+  background:rgba(255,255,255,.07);
   border:1px solid rgba(255,255,255,.18);
   color:#e8e8e8;padding:7px 28px 7px 12px;border-radius:9px;
   font-size:12.5px;font-family:inherit;outline:none;cursor:pointer;flex:0 0 auto;
+  backdrop-filter:blur(10px);
+  -webkit-backdrop-filter:blur(10px);
   background-image:url("data:image/svg+xml;charset=UTF-8,%3csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 8'%3e%3cpath fill='%23aaaaaa' d='M6 8L0 0h12z'/%3e%3c/svg%3e");
   background-repeat:no-repeat;background-position:right 10px center;background-size:9px;
   min-width:120px;
@@ -374,16 +376,19 @@ body.liquid-glass .modalCard{
   font-family:inherit;cursor:pointer;transition:.2s;
   border-radius:9px;
   border:1px solid rgba(255,255,255,.2);
-  background:rgba(255,255,255,.04);
-  color:#d8d8d8;
+  background:rgba(255,255,255,.06);
+  color:#e0e0e0;
+  backdrop-filter:blur(10px);
+  -webkit-backdrop-filter:blur(10px);
+  box-shadow:inset 0 1px 0 rgba(255,255,255,.16);
 }
 .smallBtn{font-size:11.5px;padding:7px 13px;letter-spacing:.03em}
-.smallBtn:hover{background:rgba(255,255,255,.12);border-color:rgba(255,255,255,.45);color:#fff}
+.smallBtn:hover{background:rgba(255,255,255,.14);border-color:rgba(255,255,255,.45);color:#fff}
 .fullBtn{width:100%;font-size:13px;padding:10px 14px;letter-spacing:.05em;font-weight:600}
-.fullBtn:hover{background:rgba(255,255,255,.14);border-color:rgba(255,255,255,.5);color:#fff}
+.fullBtn:hover{background:rgba(255,255,255,.16);border-color:rgba(255,255,255,.5);color:#fff}
 .fullBtn:active,.smallBtn:active{transform:scale(.985)}
 
-/* ================= 底部面板 ================= */
+/* ================= 底部面板：磨砂玻璃 ================= */
 #panel{
   position:fixed;
   left:50%;
@@ -391,20 +396,28 @@ body.liquid-glass .modalCard{
   transform:translateX(-50%);
   width:min(440px,calc(100vw - 26px));
   padding:13px 16px 11px;
-  background:rgba(10,10,10,.55);
-  border:1px solid rgba(255,255,255,.11);
+  background:rgba(24,24,30,.55);
+  border:1px solid rgba(255,255,255,.12);
   border-radius:18px;
-  box-shadow:0 18px 50px rgba(0,0,0,.5);
+  backdrop-filter:blur(28px) saturate(1.5);
+  -webkit-backdrop-filter:blur(28px) saturate(1.5);
+  box-shadow:
+    0 18px 50px rgba(0,0,0,.55),
+    inset 0 1px 0 rgba(255,255,255,.14),
+    inset 0 -1px 0 rgba(255,255,255,.03);
   z-index:4;
 }
 #btnConnect{
   width:100%;padding:11px 14px;border-radius:11px;
-  border:1px solid rgba(255,255,255,.26);
-  background:rgba(255,255,255,.05);
+  border:1px solid rgba(255,255,255,.24);
+  background:rgba(255,255,255,.07);
   color:#e8e8e8;font-size:13.5px;font-weight:600;letter-spacing:.05em;
   cursor:pointer;transition:.2s;font-family:inherit;
+  backdrop-filter:blur(10px);
+  -webkit-backdrop-filter:blur(10px);
+  box-shadow:inset 0 1px 0 rgba(255,255,255,.18);
 }
-#btnConnect:hover{background:rgba(255,255,255,.14);border-color:rgba(255,255,255,.5);color:#fff}
+#btnConnect:hover{background:rgba(255,255,255,.15);border-color:rgba(255,255,255,.5);color:#fff}
 #btnConnect:active{transform:scale(.985)}
 #btnConnect[data-on="1"]{background:rgba(255,255,255,.9);border-color:#fff;color:#000}
 #btnConnect[data-on="1"]:hover{background:#fff}
